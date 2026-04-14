@@ -1,77 +1,79 @@
-# Кинопоиск — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `Kinopoisk` v8.41.3 (arm64, Swift + Obj-C, ~165 MB)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — текущий твик покрывает локальные детекторы; server-side `checkvpn` обходится **косвенно**.
+# Kinopoisk — VPN / proxy detection
+
+**Binary:** `Kinopoisk` v8.41.3 (arm64, Swift + Obj-C, ~165 MB)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — current tweak covers the local detectors; server-side `checkvpn` is bypassed **indirectly**.
 
 ---
 
 ## TL;DR
 
-Самый «комплексный» VPN-стек среди разобранных. Кинопоиск одновременно **детектит** пользовательский VPN и **управляет** собственным «Yandex VPN-Connect» (anti-blocking прокси для DRM/региональных ограничений).
+The most "complex" VPN stack among the analysed apps. Kinopoisk simultaneously **detects** the user's VPN and **manages** its own «Yandex VPN-Connect» (anti-blocking proxy for DRM/regional restrictions).
 
-| Слой | Подсистема | Назначение |
+| Layer | Subsystem | Role |
 |---|---|---|
-| Detection | `+[AppsFlyerUtils isVPNConnected]` | стандарт AppsFlyer |
-| Detection | `-[YALAFHTTPClient isVPNConnected]` | Obj-C, Yandex AppLib (общая с Я.Маркет) |
-| Detection | `MobileAdsCore.MACVpnStatusCheckerImpl` | shared SDK SPB TV (общий с Amediateka) |
-| Detection (server-side) | `GET /tmgrdfrend/checkvpn` | бекенд-проверка |
-| Routing (НЕ detection) | `YALVPNConnectManager` (full Obj-C класс) | управляет собственным Yandex-прокси для регионального контента |
-| Config | `YALVPNConfig` / `YALVPNConfigApp` | remote-config с per-bundle-id настройками + `minVersion` |
-| Feature-flag | `ios_block_vpn` | сервер-side kill switch |
+| Detection | `+[AppsFlyerUtils isVPNConnected]` | stock AppsFlyer |
+| Detection | `-[YALAFHTTPClient isVPNConnected]` | Obj-C, Yandex AppLib (shared with Yandex Market) |
+| Detection | `MobileAdsCore.MACVpnStatusCheckerImpl` | shared SPB TV SDK (shared with Amediateka) |
+| Detection (server-side) | `GET /tmgrdfrend/checkvpn` | backend check |
+| Routing (NOT detection) | `YALVPNConnectManager` (full Obj-C class) | manages Yandex's own proxy for regional content |
+| Config | `YALVPNConfig` / `YALVPNConfigApp` | remote-config with per-bundle-id settings + `minVersion` |
+| Feature flag | `ios_block_vpn` | server-side kill switch |
 
-**Импорты:**
+**Imports:**
 
-| Символ | Статус | Контекст |
+| Symbol | Status | Context |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | 3 callsite (AppsFlyer + YAL + MAC) |
-| `_nw_path_uses_interface_type` | ✅ | `YALNetworkMonitor.mapPathToStatus:` (cellular/wifi/wired classifier, **не VPN**) |
-| `_getifaddrs` | ❌ | не импортируется |
+| `_CFNetworkCopySystemProxySettings` | ✅ | 3 call sites (AppsFlyer + YAL + MAC) |
+| `_nw_path_uses_interface_type` | ✅ | `YALNetworkMonitor.mapPathToStatus:` (cellular/wifi/wired classifier, **not VPN**) |
+| `_getifaddrs` | ❌ | not imported |
 | `_nw_interface_get_type` / `_CFNetworkCopyProxiesForURL` / `_SCDynamicStoreCopyProxies` / `_DNSServiceQueryRecord` | ❌ | — |
 
 ---
 
-## Локальные детекторы
+## Local detectors
 
-### №1 — AppsFlyer
+### #1 — AppsFlyer
 
-`+[AppsFlyerUtils isVPNConnected]` @ `0x1068C4FD0`. Стандарт. Управляется `AppsFlyerVPNCollectionEnabled` (`0x1072b77f2`).
+`+[AppsFlyerUtils isVPNConnected]` @ `0x1068C4FD0`. Stock. Controlled by `AppsFlyerVPNCollectionEnabled` (`0x1072b77f2`).
 
-### №2 — `-[YALAFHTTPClient isVPNConnected]` @ `0x1042C992C`
+### #2 — `-[YALAFHTTPClient isVPNConnected]` @ `0x1042C992C`
 
-Идентичен реализации в Яндекс Маркет (тот же Yandex AppLib): `__SCOPED__.allKeys` → `yal_foreachUsingBlock:` поверх captured-NSArray needles → `[needle containsString:iface_name]` (обратная семантика). См. [yandex-market/vpn-detection.md#детектор-1](../yandex-market/vpn-detection.md#детектор-1----yalafhttpclient-isvpnconnected) для деталей.
+Identical to the Yandex Market implementation (same Yandex AppLib): `__SCOPED__.allKeys` → `yal_foreachUsingBlock:` over a captured NSArray of needles → `[needle containsString:iface_name]` (reversed semantics). See [yandex-market/vpn-detection.md#detector-1](../yandex-market/vpn-detection.md#detector-1----yalafhttpclient-isvpnconnected) for details.
 
-### №3 — `MobileAdsCore.MACVpnStatusCheckerImpl.check()` @ `0x106AC1378`
+### #3 — `MobileAdsCore.MACVpnStatusCheckerImpl.check()` @ `0x106AC1378`
 
-**Тот же class из shared-SDK `MobileAdsCore`, что и в Amediateka.** Тристейт-результат `0/1/2` (no/yes/unknown). Externally-supplied массив подстрок через DI. См. [amediateka/vpn-detection.md#детектор-2](../amediateka/vpn-detection.md#детектор-2----macvpnstatuscheckerimplcheck) для деталей.
+**Same class from the shared `MobileAdsCore` SDK as in Amediateka.** Tri-state result `0/1/2` (no/yes/unknown). Externally-supplied substring array via DI. See [amediateka/vpn-detection.md#detector-2--macvpnstatuscheckerimplcheck](../amediateka/vpn-detection.md#detector-2--macvpnstatuscheckerimplcheck) for details.
 
-DI-инжект: property `vpnStatusChecker` (`0x1072e55e0`, `0x107c6dbf0`).
+DI injection: property `vpnStatusChecker` (`0x1072e55e0`, `0x107c6dbf0`).
 
 ---
 
 ## Server-side check — `/tmgrdfrend/checkvpn`
 
-Endpoint `0x10720234d`. Третий разобранный кейс с server-side детектом (после 2GIS `/v1/vpn-detection-free` и Amediateka `403 Vpn`).
+Endpoint `0x10720234d`. Third analysed case with server-side detection (after 2GIS `/v1/vpn-detection-free` and Amediateka `403 Vpn`).
 
-Не нашли в декомпиляции прямой URLSession-вызов (скорее всего, собирается из base + path где-то в Yandex networking layer), но ясно по строке.
+We didn't find a direct URLSession call in the decomp (most likely it's assembled from base + path somewhere in the Yandex networking layer), but the string is clear.
 
-Активность контролируется feature-flag'ом **`ios_block_vpn`** (`0x107213b15`) — сервер может отключить детект-блок на лету.
+Activity is controlled by feature flag **`ios_block_vpn`** (`0x107213b15`) — the server can toggle the detection block on the fly.
 
 ---
 
-## `YALVPNConnect` — НЕ detection, а **роутинг**
+## `YALVPNConnect` — NOT detection, but **routing**
 
-Целая Obj-C подсистема для управления **собственным** VPN-Connect от Yandex (анти-блок прокси для регионального контента):
+A whole Obj-C subsystem to manage **Yandex's own** VPN-Connect (anti-blocking proxy for regional content):
 
-| Класс | Назначение |
+| Class | Role |
 |---|---|
-| `YALVPNConnectManager` (`+shared`) | синглтон, managing connection-status |
-| `YALVPNConnectManagerObserversController` | KVO-подобный observers controller |
-| `YALVPNConnectProductLocation` | модель «где находится продукт» (lat/lon) |
-| `YALVPNConfig` | remote-config верхний уровень |
-| `YALVPNConfigApp` | per-bundle-id config с `appID` + `minVersion` |
+| `YALVPNConnectManager` (`+shared`) | singleton managing connection status |
+| `YALVPNConnectManagerObserversController` | KVO-like observers controller |
+| `YALVPNConnectProductLocation` | model for "where the product is" (lat/lon) |
+| `YALVPNConfig` | top-level remote-config |
+| `YALVPNConfigApp` | per-bundle-id config with `appID` + `minVersion` |
 
-Ключевые методы `YALVPNConnectManager`:
+Key `YALVPNConnectManager` methods:
 
 - `+shared`, `init`, `dealloc`
 - `updateWithAccountManager:`
@@ -88,22 +90,22 @@ Endpoint `0x10720234d`. Третий разобранный кейс с server-s
 - `httpClient`
 - `updateStatus:`
 
-Он подписывается на:
+Subscribes to:
 - `YALNetworkMonitor` (network reachability)
 - `YALAccountManager` (login/logout)
 - `YALLocationTracker` (geo updates)
 
-И обновляет внутренний «должен ли быть включен Yandex VPN-Connect» через `YALVPNConfig.shouldBeEnabled` (`0x104300a50` — большой метод 0x224 байт, парсит JSON-config с `apps[]`, проверяет `appID == bundleID` и `version >= minVersion` через `semverComponents:greaterOrEqualThan:`).
+Updates the internal "should Yandex VPN-Connect be enabled" via `YALVPNConfig.shouldBeEnabled` (`0x104300a50` — a large 0x224-byte method that parses a JSON config with `apps[]`, checks `appID == bundleID` and `version >= minVersion` via `semverComponents:greaterOrEqualThan:`).
 
-Это **не детектор пользовательского VPN**, а **управление включением Yandex'ового анти-блок прокси** для региональных стримов. Но в бинарнике обе системы перемешаны и часто называются `vpn*`.
+This is **not a user-VPN detector**, but **management of Yandex's anti-blocking proxy** for regional streams. But in the binary both systems are mixed and frequently named `vpn*`.
 
 ---
 
-## UI — "VPN Blocker" full-screen
+## UI — full-screen "VPN Blocker"
 
-6 analytics-событий указывают на полноценный full-screen VPN-blocker UI с несколькими действиями:
+6 analytics events indicate a fully-fledged full-screen VPN-blocker UI with several actions:
 
-| Event | Адрес |
+| Event | Address |
 |---|---|
 | `vpn_blocker_show` | `0x107208a62` |
 | `vpn_blocker_hide` | `0x107208a73` |
@@ -112,42 +114,42 @@ Endpoint `0x10720234d`. Третий разобранный кейс с server-s
 | `vpn_blocker_settings` | `0x107208aa9` |
 | `vpn_blocker_openurl` | `0x107208abe` |
 
-Это полноценная экран-блокировка с кнопками: «Перезагрузить», «Закрыть», «Настройки», «Открыть URL» (видимо, FAQ).
+A full screen lockout with buttons «Reload», «Close», «Settings», «Open URL» (presumably FAQ).
 
-### Тексты алертов
+### Alert texts
 
-| Сообщение | Адрес |
+| Message | Address |
 |---|---|
 | `У вас включен VPN или в вашей стране доступен не весь каталог Кинопоиска` | `0x1070426b0` |
 | `Что-то пошло не так. Возможно, вам нужно выключить VPN` | `0x1071ad950` |
 
-Первый текст характерен — Кинопоиск **не уверен**, проблема в VPN или в region availability. Это последовательно с тристейт-логикой `MACVpnStatusChecker`'а (`unknown` case).
+The first text is telling — Kinopoisk **isn't sure** whether the issue is VPN or region availability. Consistent with the `MACVpnStatusChecker`'s tri-state logic (`unknown` case).
 
-### Прочие markers
+### Other markers
 
-- `vpnFlag`, `vpnInactive`, `isVpnEnabled` — internal state-флаги
-- `vpnConnectedTransformer` — Combine/Rx Transformer (как у Amediateka)
-- `sessionBecameInvalidWithoutUnderlyingError` — error case, видимо мапящийся в VPN-blocker
+- `vpnFlag`, `vpnInactive`, `isVpnEnabled` — internal state flags
+- `vpnConnectedTransformer` — Combine/Rx Transformer (like Amediateka's)
+- `sessionBecameInvalidWithoutUnderlyingError` — error case, presumably mapping into the VPN blocker
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Локальная часть закрывается полностью:
+The local part is fully covered:
 
-| Детектор | Хук | Эффект |
+| Detector | Hook | Effect |
 |---|---|---|
-| AppsFlyer | `CFNetworkCopySystemProxySettings` | пустой `__SCOPED__` → `NO` |
-| YALAFHTTPClient | `CFNetworkCopySystemProxySettings` | пустой allKeys → block ничего не находит → `NO` |
-| MACVpnStatusCheckerImpl | `CFNetworkCopySystemProxySettings` | пустой allKeys → `0` (no VPN, не unknown) |
+| AppsFlyer | `CFNetworkCopySystemProxySettings` | empty `__SCOPED__` → `NO` |
+| YALAFHTTPClient | `CFNetworkCopySystemProxySettings` | empty allKeys → block finds nothing → `NO` |
+| MACVpnStatusCheckerImpl | `CFNetworkCopySystemProxySettings` | empty allKeys → `0` (no VPN, not unknown) |
 
-Server-side `/tmgrdfrend/checkvpn` **не обходится напрямую**, но:
-- По симметрии с 2GIS/Amediateka, скорее всего сервер бьёт только когда локальные сигналы что-то показали → если локалка молчит, бекенд не дёргается. Эмпирически проверять.
-- Можно обнулить через swizzle URLSession + URL-matching на `/checkvpn`.
+Server-side `/tmgrdfrend/checkvpn` is **not bypassed directly**, but:
+- By symmetry with 2GIS/Amediateka, the server is most likely hit only when local signals indicate something → if the local side stays silent, the backend isn't called. Verify empirically.
+- Can be neutralised via URLSession swizzle + URL-matching on `/checkvpn`.
 
-`YALVPNConnectManager` (Yandex-прокси routing) **не нужно** трогать — это управление Yandex VPN-Connect, а не детект пользователя. Хуки на `__SCOPED__` его не задевают.
+`YALVPNConnectManager` (Yandex proxy routing) doesn't need to be touched — it manages Yandex VPN-Connect, not the user detect. `__SCOPED__` hooks don't affect it.
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "ru.kinopoisk" ); }; }
@@ -155,17 +157,17 @@ Server-side `/tmgrdfrend/checkvpn` **не обходится напрямую**,
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МФ | CDEK | DNS | ЦППК | Urent | Гос | бил | 2GIS | Налог | Rost | В&Т | Amediateka | YM | **Кинопоиск** |
+| | MyMTS | MF | CDEK | DNS | CPPK | Urent | Gos | Bln | 2GIS | Nlg | Rst | V&T | Amediateka | YM | **Kinopoisk** |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Лок. детекторов | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3 | 0 | 1 | 1 | 2 | 2 | **3** |
+| Local detectors | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3 | 0 | 1 | 1 | 2 | 2 | **3** |
 | AppsFlyer-style | ✅ | — | ✅ | — | ❌ | ✅ | — | ✅ | ✅ | — | ✅ | ❌ | ✅ | ❌ | ✅ |
 | Server-side | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ 451 | — | ❌ | ❌ | ✅ 403 Vpn | ❌ | ✅ `/checkvpn` |
-| Тристейт on/off/unknown | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | — | ❌ | ❌ | ✅ | ❌ | **✅** (через MAC) |
-| Shared SDK с другим app | — | — | — | — | — | — | — | — | — | — | — | — | ✅ MobileAdsCore | ✅ YAL | **✅×2** (MAC + YAL) |
-| Свой proxy (anti-blocker) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | — | ❌ | ❌ | ❌ | ❌ | **✅** YALVPNConnect |
-| Full-screen blocker UI | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ + CarPlay | — | ❌ | ❌ | ❌ | ❌ | ✅ (6 событий) |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (лок.) | n/a | ✅ | ✅ | ✅ (лок.) | ✅ | ✅ (лок.) |
+| Tri-state on/off/unknown | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | — | ❌ | ❌ | ✅ | ❌ | **✅** (via MAC) |
+| Shared SDK with another app | — | — | — | — | — | — | — | — | — | — | — | — | ✅ MobileAdsCore | ✅ YAL | **✅×2** (MAC + YAL) |
+| Own proxy (anti-blocker) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | — | ❌ | ❌ | ❌ | ❌ | **✅** YALVPNConnect |
+| Full-screen blocker UI | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ + CarPlay | — | ❌ | ❌ | ❌ | ❌ | ✅ (6 events) |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (local) | n/a | ✅ | ✅ | ✅ (local) | ✅ | ✅ (local) |
 
-Кинопоиск — единственное приложение в выборке, где есть **собственная VPN-инфраструктура для обхода блокировок** (`YALVPNConnect`) **и** многослойный детект **пользовательского** VPN. Также первое приложение, переиспользующее **сразу два** shared-SDK с другими разобранными апп: `MobileAdsCore` (с Amediateka) и Yandex AppLib YAL (с Я.Маркет). Это важный водораздел в экосистемах — Кинопоиск находится на пересечении Yandex и SPB TV / Mail.ru стримингового мира.
+Kinopoisk is the only analysed app that has **its own VPN infrastructure for bypassing blocks** (`YALVPNConnect`) **and** multi-layered detection of the **user's** VPN. It's also the first app that reuses **two** shared SDKs with other analysed apps simultaneously: `MobileAdsCore` (with Amediateka) and Yandex AppLib YAL (with Yandex Market). An important watershed in ecosystems — Kinopoisk sits at the intersection of Yandex and the SPB TV / Mail.ru streaming world.

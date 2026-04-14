@@ -1,37 +1,39 @@
-# Мой МТС
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Мой МТС (MyMTS)
+
+| Field | Value |
 |---|---|
 | Display name | Мой МТС |
 | Bundle ID | `ru.mts.mymts` |
 | CFBundleExecutable | `MtsServiceRu` |
-| Версия | — (бинарник без Info.plist) |
+| Version | — (binary without Info.plist) |
 | Min iOS | — |
-| Архитектуры | arm64 |
-| Размер бинарника | 32 MB |
+| Architectures | arm64 |
+| Binary size | 32 MB |
 
-## Пути
+## Paths
 
-- Бинарник: [`../../MtsServiceRu`](../../MtsServiceRu)
-- IDA-база: `MtsServiceRu.i64` (там же, рядом: `.id0`/`.id1`/`.id2`/`.nam`/`.til`)
-- IPA: _нет_ — в репо лежит только извлечённый исполняемый файл, без .app-бандла.
+- Binary: [`../../MtsServiceRu`](../../MtsServiceRu)
+- IDA database: `MtsServiceRu.i64` (alongside: `.id0`/`.id1`/`.id2`/`.nam`/`.til`)
+- IPA: _none_ — the repo only has the extracted executable, no .app bundle.
 
-## Заметки по бинарнику
+## Notes
 
-- Основной swift-модуль: `MtsServiceRu`.
-- Общие фреймворки: `MyMtsKit`, `GeoWidgetSDK`, `SPMProxy`.
-- Сторонняя аналитика: AppsFlyer, AppMetrica (Yandex), OpenTelemetry.
-- Swift-код активно использует `NWPathMonitor` / `Combine`-пайплайны (`CurrentValueSubject`) — почти вся реактивщина, связанная с состоянием сети, идёт через `GeoWidgetSDK`.
-- UI-снекбары и gate'ы фич завязаны на Swift-протоколы `MyMtsKit.VpnDetectorListener` и `MyMtsKit.FeedbackMessageVpnDetectorListener`.
-- Feature-flags реализованы через `*ConditionParam`-классы в `MtsServiceRu` (например, `VpnEnabledConditionParam`, `MtsAnalyticsExperimentsConditionParam`).
-- Обфускации нет; Swift-метаданные читаемы, Obj-C-селекторы не скрыты.
+- Main Swift module: `MtsServiceRu`.
+- Shared frameworks: `MyMtsKit`, `GeoWidgetSDK`, `SPMProxy`.
+- Third-party analytics: AppsFlyer, AppMetrica (Yandex), OpenTelemetry.
+- Swift code leans heavily on `NWPathMonitor` / `Combine` pipelines (`CurrentValueSubject`) — most of the network-state reactive flow goes through `GeoWidgetSDK`.
+- UI snackbars and feature gates tie into Swift protocols `MyMtsKit.VpnDetectorListener` and `MyMtsKit.FeedbackMessageVpnDetectorListener`.
+- Feature flags implemented via `*ConditionParam` classes in `MtsServiceRu` (e.g. `VpnEnabledConditionParam`, `MtsAnalyticsExperimentsConditionParam`).
+- No obfuscation; Swift metadata is readable, Obj-C selectors are not hidden.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — скрытие VPN от приложения.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — hides VPN from the app.

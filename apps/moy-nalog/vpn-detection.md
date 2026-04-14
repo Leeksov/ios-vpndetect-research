@@ -1,77 +1,79 @@
-# Мой налог — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `selfemployed` v4.7.1 (arm64, Obj-C + Swift)
-**Способ анализа:** IDA Pro / Hex-Rays.
+# Moy Nalog (Мой налог) — VPN / proxy detection
+
+**Binary:** `selfemployed` v4.7.1 (arm64, Obj-C + Swift)
+**Method:** IDA Pro / Hex-Rays.
 
 ---
 
 ## TL;DR
 
-**Приложение не детектит VPN**.
+**The app does not detect VPN.**
 
-Полностью отсутствует весь стек проверок, встречавшийся в других разобранных приложениях:
+The entire detection stack found in other analysed apps is completely absent:
 
-- Нет импорта `CFNetworkCopySystemProxySettings`
-- Нет импорта `nw_path_uses_interface_type` / `nw_interface_get_type`
-- Нет импорта `CFNetworkCopyProxiesForURL`
-- Нет импорта `SCDynamicStoreCopyProxies` / `DNSServiceQueryRecord`
-- Нет ни одной Swift/Obj-C строки вида `isVPN*`, `vpn*`, `isProxy`, `VpnChecker`, `VPNDetector`, `VPNMonitoring` и т.п.
-- Нет строк с русскими «VPN», «впн», «Включён VPN» и т.д.
-- Нет строки `__SCOPED__`.
+- No `CFNetworkCopySystemProxySettings` import
+- No `nw_path_uses_interface_type` / `nw_interface_get_type` import
+- No `CFNetworkCopyProxiesForURL` import
+- No `SCDynamicStoreCopyProxies` / `DNSServiceQueryRecord` import
+- No Swift/Obj-C strings like `isVPN*`, `vpn*`, `isProxy`, `VpnChecker`, `VPNDetector`, `VPNMonitoring` etc.
+- No Russian strings «VPN», «впн», «Включён VPN» etc.
+- No `__SCOPED__` string.
 
-Все попадания по regex'у `VPN|vpn|proxy|ipsec` — **ложные**, из системных библиотек, слинкованных в бинарь:
+All hits for the regex `VPN|vpn|proxy|ipsec` are **false positives** from system libraries linked into the binary:
 
-| Попадание | Источник |
+| Hit | Origin |
 |---|---|
-| `(MPLS-labeled VPN)`, `ipsecEndSystem`, `ipsecTunnel`, `ipsecUser`, `ipsec3`, `ipsec4`, `ipsec Internet Key Exchange` | OpenSSL/BoringSSL X.509 policy OID названия (статическая часть displayable-name таблицы). |
-| `http_proxy`, `all_proxy`, `NO_PROXY`, `SOCKS-PROXY`, `HAPROXY`, `Proxy-Connection`, `Proxy-authenticate`, `CONNECT to proxy`, `Excessive user name length for proxy auth` | libcurl — внутренние строки для чтения `http_proxy`/`HTTPS_PROXY`/`NO_PROXY` env-переменных и CONNECT-туннелей. |
+| `(MPLS-labeled VPN)`, `ipsecEndSystem`, `ipsecTunnel`, `ipsecUser`, `ipsec3`, `ipsec4`, `ipsec Internet Key Exchange` | OpenSSL/BoringSSL X.509 policy OID names (static part of the displayable-name table). |
+| `http_proxy`, `all_proxy`, `NO_PROXY`, `SOCKS-PROXY`, `HAPROXY`, `Proxy-Connection`, `Proxy-authenticate`, `CONNECT to proxy`, `Excessive user name length for proxy auth` | libcurl — internal strings for reading `http_proxy`/`HTTPS_PROXY`/`NO_PROXY` env vars and CONNECT tunnels. |
 | `isAppDelegateProxyEnabled`, `App Delegate Proxy is disabled`, `proxyOriginalDelegate`, `createAppDelegateProxy` | Firebase/FirebaseMessaging — AppDelegate swizzling. |
-| `ProxyFaceReporter`, `ProxyReporter`, `ProxyFeedbackReporter`, `initFromCreatedFaceSession:withCreatedProxyReporter:` | VisionLabs / LUNA ID — биометрическое распознавание лица (используется для идентификации самозанятого). |
-| `com.huawei.hms.push.proxy`, `hmsPushProxyDev`, `/rest/proxy/v1/apply`, `/rest/proxy/v1/cancel` | Huawei Push SDK — только для HMS-устройств, к VPN не относится. |
+| `ProxyFaceReporter`, `ProxyReporter`, `ProxyFeedbackReporter`, `initFromCreatedFaceSession:withCreatedProxyReporter:` | VisionLabs / LUNA ID — biometric face recognition (used for self-employed identity verification). |
+| `com.huawei.hms.push.proxy`, `hmsPushProxyDev`, `/rest/proxy/v1/apply`, `/rest/proxy/v1/cancel` | Huawei Push SDK — only for HMS devices, unrelated to VPN. |
 | `isSessionScoped`, `sessionScoped`, `ItemScopedCustomParameterLimitReached` | Firebase Analytics — event filter scoping. |
-| `ScopedRecognizerHandle` | C++ шаблон face recognizer. |
+| `ScopedRecognizerHandle` | C++ template for the face recognizer. |
 
-## Импорты
+## Imports
 
-| Символ | Статус | Где используется |
+| Symbol | Status | Where used |
 |---|---|---|
-| `_getifaddrs` | ✅ | единственный caller — `sub_10070AE0C`: утилита чтения IP-адресов в строку через `inet_ntop` (libcurl-style). **Не VPN.** |
-| `_sysctl` / `_sysctlbyname` | ✅ | uptime / hw model (аналитика). |
-| `_getenv` | ✅ | env SDK / libcurl proxy-env чтение. |
-| `_dlopen` / `_dlsym` | ✅ | dynamic loading, не VPN. |
-| `_if_nametoindex` | ✅ | вспомогательный (libcurl). |
-| `_CFNetworkCopySystemProxySettings` | ❌ | **не импортируется** |
-| `_nw_path_uses_interface_type` | ❌ | **не импортируется** |
-| `_nw_interface_get_type` | ❌ | **не импортируется** |
-| `_CFNetworkCopyProxiesForURL` | ❌ | **не импортируется** |
-| `_SCDynamicStoreCopyProxies` | ❌ | **не импортируется** |
-| `_DNSServiceQueryRecord` | ❌ | **не импортируется** |
+| `_getifaddrs` | ✅ | sole caller — `sub_10070AE0C`: helper that reads IP addresses to a string via `inet_ntop` (libcurl-style). **Not VPN.** |
+| `_sysctl` / `_sysctlbyname` | ✅ | uptime / hw model (analytics). |
+| `_getenv` | ✅ | SDK env / libcurl proxy-env reads. |
+| `_dlopen` / `_dlsym` | ✅ | dynamic loading, not VPN. |
+| `_if_nametoindex` | ✅ | helper (libcurl). |
+| `_CFNetworkCopySystemProxySettings` | ❌ | **not imported** |
+| `_nw_path_uses_interface_type` | ❌ | **not imported** |
+| `_nw_interface_get_type` | ❌ | **not imported** |
+| `_CFNetworkCopyProxiesForURL` | ❌ | **not imported** |
+| `_SCDynamicStoreCopyProxies` | ❌ | **not imported** |
+| `_DNSServiceQueryRecord` | ❌ | **not imported** |
 
 ---
 
-## Обход
+## Bypass
 
-**Не нужен.** Приложение работает через VPN и прокси как есть, ничего не проверяет, ничего не блокирует, никаких снекбаров о VPN не показывает.
+**Not needed.** The app works over VPN and proxy as-is, doesn't probe anything, doesn't block anything, doesn't show any VPN snackbars.
 
-В `Filter.plist` твика `VPNHide` добавлять `com.gnivts.selfemployed` нет смысла — хукать там нечего.
+There's no point adding `com.gnivts.selfemployed` to `VPNHide`'s `Filter.plist` — there's nothing to hook.
 
 ---
 
-## Контекст
+## Context
 
-Мой налог — приложение ФНС для самозанятых. Работает с налоговым API, биометрией (VisionLabs для проверки личности при регистрации), платежами. Логично, что команда ФНС **не считает VPN угрозой** — это не маркетинговая аналитика, а госуслуга, завязанная на ИНН и биометрию. Санкционная блокировка через IP-геолокацию тоже не имеет смысла, приложение работает только для резидентов РФ, идентифицированных по паспорту.
+Moy Nalog is the Russian Federal Tax Service (FNS) app for self-employed citizens. Works with the tax API, biometrics (VisionLabs for identity verification on registration), payments. It makes sense that the FNS team **doesn't see VPN as a threat** — it's not marketing analytics, it's a government service tied to taxpayer ID (INN) and biometrics. Sanctions-style IP-geo blocking is also pointless: the app only works for Russian residents identified by passport.
 
-Сравнение с другими разобранными:
+Comparison with the other analysed apps:
 
-| App | Детекторы |
+| App | Detectors |
 |---|---|
 | MyMTS | 2 |
-| МФ | 1 |
+| MF | 1 |
 | CDEK | 2 |
 | DNS-SHOP | 1 |
-| ЦППК | 1 |
+| CPPK | 1 |
 | Urent | 3 |
-| Госуслуги | 5 |
-| билайн | 2 |
+| Gosuslugi | 5 |
+| Beeline | 2 |
 | 2GIS | 3 + server-side |
-| **Мой налог** | **0** |
+| **Moy Nalog** | **0** |

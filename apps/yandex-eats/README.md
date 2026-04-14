@@ -1,37 +1,39 @@
-# Яндекс Еда
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Яндекс Еда (Yandex Eats)
+
+| Field | Value |
 |---|---|
 | Display name | YandexEats |
 | Bundle ID | `com.appkode.foodfox` |
 | CFBundleExecutable | `YandexEats` |
-| Версия | 8.102.1 |
+| Version | 8.102.1 |
 | Min iOS | 16.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 221 MB |
+| Architectures | arm64 |
+| Binary size | 221 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Yandex Eats_v8.102.1-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/yandex-eats/Payload/YandexEats.app/`
-- Бинарник (для IDA): [`../../binaries/yandex-eats`](../../binaries/yandex-eats)
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/yandex-eats/Payload/YandexEats.app/YandexEats`
 
-Bundle ID — `com.appkode.foodfox` (AppKode — разработчик, FoodFox — проект до поглощения Яндексом).
+Bundle ID — `com.appkode.foodfox` (AppKode is the original developer, FoodFox is the project name pre-acquisition by Yandex).
 
-## Заметки по бинарнику
+## Notes
 
-- 3 локальных VPN-детектора, **без** AppsFlyer SDK и **без** `MobileAdsCore`.
-- Главный Swift-checker лежит в **`YXFintechFoundation`** — общем финтех-фундаменте Яндекса (по-видимому, шарится между Я.Маркет, Я.Такси, Я.Доставка и др.). Уникальная позиция детектора — на уровне платёжной инфраструктуры, не general networking.
-- `EatsSDKExperiments.VPNCheckConfig` — Codable-структура для remote-config (вкл./выкл. детектора через A/B).
-- 3 analytics-события: `VpnBlockingInit`, `VpnBlockingShowen` (sic, опечатка `Showen`), `VpnBlockingUpdated`.
-- Использует Yandex AppLib `YAL` (общий с Я.Маркет и Кинопоиском).
+- 3 local VPN detectors, **no** AppsFlyer SDK and **no** `MobileAdsCore`.
+- The main Swift checker lives in **`YXFintechFoundation`** — Yandex's shared fintech foundation (likely shared across Yandex Market, Yandex Taxi, Yandex Delivery and others). Unique placement of the detector — at the payments-infrastructure layer, not general networking.
+- `EatsSDKExperiments.VPNCheckConfig` — Codable struct used for remote-config (toggle the detector via A/B).
+- 3 analytics events: `VpnBlockingInit`, `VpnBlockingShowen` (sic, `Showen` typo), `VpnBlockingUpdated`.
+- Uses Yandex AppLib `YAL` (shared with Yandex Market and Kinopoisk).
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает все 3 детектора (`__SCOPED__` чистится); для активации добавить `com.appkode.foodfox` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers all 3 detectors (`__SCOPED__` is wiped). Add `com.appkode.foodfox` to `Filter.plist`.

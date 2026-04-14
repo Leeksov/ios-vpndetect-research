@@ -1,35 +1,37 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # 2GIS
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | 2GIS |
 | Bundle ID | `ru.doublegis.grymmobile` |
 | CFBundleExecutable | `ru.doublegis.grymmobile` |
-| Версия | 7.21.7 |
+| Version | 7.21.7 |
 | Min iOS | 16.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 183 MB |
+| Architectures | arm64 |
+| Binary size | 183 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_2GIS_v7.21.7-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/2GIS/Payload/ru.doublegis.grymmobile.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/2GIS/Payload/ru.doublegis.grymmobile.app/ru.doublegis.grymmobile`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/2GIS/Payload/ru.doublegis.grymmobile.app/ru.doublegis.grymmobile`
 
-## Заметки по бинарнику
+## Notes
 
-- Архитектура с 4 отдельными фреймворками под VPN-детект: `VNVPNCheckerAPI`, `VNVPNCheckerAPIInterfaces`, `VNVPNCheckerUI`, `VNCarPlay`.
-- **Server-side** детект через `/v1/vpn-detection-free` (HTTP 451 = блок).
-- Full-screen UI-блок через отдельный `UIWindow` (`VPNBlockedWindow`), плюс отдельный CarPlay-overlay с preservation маршрута.
-- `String.hasPrefix` (не `contains`) + `lowercased()` — строже, чем у прочих приложений.
-- Debug-символы из Jenkins CI слиты в релиз: `/Users/user/jenkins/agent/workspace/release-v4ios/...`.
+- Architecture with 4 dedicated VPN-detection frameworks: `VNVPNCheckerAPI`, `VNVPNCheckerAPIInterfaces`, `VNVPNCheckerUI`, `VNCarPlay`.
+- **Server-side** check via `/v1/vpn-detection-free` (HTTP 451 = blocked).
+- Full-screen UI block via a dedicated `UIWindow` (`VPNBlockedWindow`), plus a separate CarPlay overlay with route-preservation.
+- `String.hasPrefix` (not `contains`) + `lowercased()` — stricter than most.
+- Jenkins CI debug paths leaked into the release binary: `/Users/user/jenkins/agent/workspace/release-v4ios/...`.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает локальные детекторы (3 шт); server-side check сам не сработает, т.к. локальный triger заглушён. Для активации добавить `ru.doublegis.grymmobile` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers the 3 local detectors; server-side check won't fire on its own if the local triggers are silenced. Add `ru.doublegis.grymmobile` to `Filter.plist` to activate.

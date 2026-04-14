@@ -1,39 +1,41 @@
-# CDEK — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `CDEK` v5.9.0 (arm64, React Native + Swift + Obj-C)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — текущий твик покрывает, достаточно добавить `com.cdek.cdekapp` в [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
+# CDEK — VPN / proxy detection
+
+**Binary:** `CDEK` v5.9.0 (arm64, React Native + Swift + Obj-C)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — current tweak covers it; just add `com.cdek.cdekapp` to [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
 
 ---
 
 ## TL;DR
 
-Приложение на React Native (reanimated, margelo/nitro, worklets). Два детектора, **оба** сводятся к одному и тому же системному вызову:
+React Native app (reanimated, margelo/nitro, worklets). Two detectors, **both** reduce to the same system call:
 
-| # | Модуль | Механизм | Адрес |
+| # | Module | Mechanism | Address |
 |---|---|---|---|
 | 1 | AppsFlyer SDK (Obj-C) | `CFNetworkCopySystemProxySettings` → `__SCOPED__` → substrings `tap/tun/ipsec/ppp` | `0x100108FC4` |
-| 2 | `VpnDetect` RN-модуль (Swift) | то же самое + дополнительно `utun` и `ipsec0` | `0x1008FF3AC` |
+| 2 | `VpnDetect` RN module (Swift) | same + adds `utun` and `ipsec0` | `0x1008FF3AC` |
 
-`VpnDetect` — CocoaPods-пакет (строка `PodsDummy_VpnDetect` @ `0x100cd3008`), судя по имени — `react-native-vpn-detect` или аналог. React Native exposed-класс: `_TtC9VpnDetect15VpnDetectModule` (`0x100c70040`), JS-API-селектор — `isVpnConnected` (`0x100c7006d`).
+`VpnDetect` is a CocoaPods package (string `PodsDummy_VpnDetect` @ `0x100cd3008`), by name presumably `react-native-vpn-detect` or similar. RN-exposed class: `_TtC9VpnDetect15VpnDetectModule` (`0x100c70040`), JS-API selector — `isVpnConnected` (`0x100c7006d`).
 
-**NWPathMonitor не используется для VPN.** Единственный `nw_path_uses_interface_type`-колл-сайт (`sub_1002E55DC`) запрашивает `.wifi` / `.cellular` / `.wired` для определения типа подключения и передаёт его в `setNetworkType:` — классификатор, а не VPN-детект.
-
----
-
-## Детектор №1 — AppsFlyer: `+[AppsFlyerUtils isVPNConnected]`
-
-**Адрес:** `0x100108FC4`. Байт-в-байт совпадает с реализацией в MyMTS (`0x10142678c`): `CFNetworkCopySystemProxySettings().__SCOPED__` → `allKeys` → `rangeOfString:` по `"tap"`/`"tun"`/`"ipsec"`/`"ppp"`.
-
-Стандартный код AppsFlyer SDK, используется внутри SDK. Не гейтит UI приложения, но управляет тем, что репортится в AppsFlyer-телеметрию (флаг `VPNCollectionEnabled` @ `0x100b60f17`).
+**NWPathMonitor is not used for VPN.** The single `nw_path_uses_interface_type` call site (`sub_1002E55DC`) queries `.wifi` / `.cellular` / `.wired` to determine connection type and feeds it into `setNetworkType:` — a classifier, not a VPN detector.
 
 ---
 
-## Детектор №2 — `VpnDetect` Swift-модуль — `sub_1008FF3AC`
+## Detector #1 — AppsFlyer: `+[AppsFlyerUtils isVPNConnected]`
 
-Тот же алгоритм, реализованный по-свифтовски через `Dictionary._conditionallyBridgeFromObjectiveC` + `StringProtocol.contains<A>`. Расширенный список подстрок — 6 штук:
+**Address:** `0x100108FC4`. Byte-for-byte identical to the MyMTS implementation (`0x10142678c`): `CFNetworkCopySystemProxySettings().__SCOPED__` → `allKeys` → `rangeOfString:` for `"tap"`/`"tun"`/`"ipsec"`/`"ppp"`.
 
-| Swift-литерал | Байты | ASCII |
+Stock AppsFlyer SDK code, used inside the SDK. Doesn't gate the app UI, but controls what's reported to AppsFlyer telemetry (flag `VPNCollectionEnabled` @ `0x100b60f17`).
+
+---
+
+## Detector #2 — `VpnDetect` Swift module — `sub_1008FF3AC`
+
+Same algorithm, implemented Swift-style via `Dictionary._conditionallyBridgeFromObjectiveC` + `StringProtocol.contains<A>`. Extended substring list — 6 entries:
+
+| Swift literal | Bytes | ASCII |
 |---|---|---|
 | `0x0070_6174` (`7364980`) | `74 61 70 00` | `tap` |
 | `0x006E_7574` (`7239028`) | `74 75 6E 00` | `tun` |
@@ -42,9 +44,9 @@
 | `0x6E75_7475` (`1853191285`) | `75 74 75 6E` | `utun` |
 | `0x3063_6573_7069` | `69 70 73 65 63 30` | `ipsec0` |
 
-Ключ словаря — `__SCOPED__` (`0x4445504F43535F5F` + `0xEA00000000005F5F`).
+Dictionary key — `__SCOPED__` (`0x4445504F43535F5F` + `0xEA00000000005F5F`).
 
-Псевдокод:
+Pseudocode:
 
 ```swift
 func isVpnConnected() -> Bool {
@@ -56,41 +58,41 @@ func isVpnConnected() -> Bool {
         if iface.contains("ppp")    { return true }
         if iface.contains("ipsec")  { return true }
         if iface.contains("utun")   { return true }
-        if iface.contains("ipsec0") { return true }    // избыточно — покрывается "ipsec"
+        if iface.contains("ipsec0") { return true }    // redundant — covered by "ipsec"
     }
     return false
 }
 ```
 
-Экспортируется в JS-bridge через `VpnDetectModule.isVpnConnected` → реакцию в UI строит JS-часть (React Native Bridge / turbo module).
+Exported to the JS bridge via `VpnDetectModule.isVpnConnected` → UI reaction is built by the JS side (React Native Bridge / turbo module).
 
 ---
 
-## Импорты — что есть, но не задействовано для VPN
+## Imports — present but not used for VPN
 
-| Символ | Использование | К VPN-детекту |
+| Symbol | Use | Related to VPN detection |
 |---|---|---|
-| `_getifaddrs` | `-[RNCNetInfo ipAddress]`, `-[RNCNetInfo subnet]` — получение локального IP | Нет |
-| `_sysctl` / `_sysctlbyname` | `+[AFSystemInfo machineModel]`, `+[GULAppEnvironmentUtil getSysctlEntry:]` — hw-model/uptime | Нет |
-| `_nw_path_uses_interface_type` | `sub_1002E55DC` — классификация wifi/cellular/wired для `setNetworkType:` | Нет |
-| `_SCNetworkReachabilityCreateWithName` | Sentry, общий reachability | Нет |
-| `_if_nametoindex` | один вспомогательный колл-сайт | Нет |
-| `_dlopen` / `_dlsym` | RN/JSC/Hermes loading | Нет |
-| `_getenv` | не импортируется | — |
-| `_DNSServiceQueryRecord` | не импортируется | — |
-| `_SCDynamicStoreCopyProxies` | не импортируется | — |
+| `_getifaddrs` | `-[RNCNetInfo ipAddress]`, `-[RNCNetInfo subnet]` — local IP | No |
+| `_sysctl` / `_sysctlbyname` | `+[AFSystemInfo machineModel]`, `+[GULAppEnvironmentUtil getSysctlEntry:]` — hw model / uptime | No |
+| `_nw_path_uses_interface_type` | `sub_1002E55DC` — wifi/cellular/wired classification for `setNetworkType:` | No |
+| `_SCNetworkReachabilityCreateWithName` | Sentry, generic reachability | No |
+| `_if_nametoindex` | one helper call site | No |
+| `_dlopen` / `_dlsym` | RN/JSC/Hermes loading | No |
+| `_getenv` | not imported | — |
+| `_DNSServiceQueryRecord` | not imported | — |
+| `_SCDynamicStoreCopyProxies` | not imported | — |
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Наш хук на `CFNetworkCopySystemProxySettings` удаляет из `__SCOPED__` все ключи, содержащие `utun/tun/tap/ipsec/ppp/wg`. Это покрывает обе реализации:
-- AppsFlyer — `rangeOfString:` вернёт `NSNotFound` по всем 4 паттернам.
-- VpnDetect — `StringProtocol.contains` вернёт `false` по всем 6 паттернам (`ipsec0` попадает под фильтр `ipsec`).
+Our `CFNetworkCopySystemProxySettings` hook removes from `__SCOPED__` all keys containing `utun/tun/tap/ipsec/ppp/wg`. This covers both implementations:
+- AppsFlyer — `rangeOfString:` will return `NSNotFound` for all 4 patterns.
+- VpnDetect — `StringProtocol.contains` returns `false` for all 6 patterns (`ipsec0` is covered by the `ipsec` filter).
 
-Хук `nw_path_uses_interface_type` для CDEK избыточен, но не ломает RN-сетевую классификацию: вызовы с `.wifi`/`.cellular`/`.wired` проксируются оригиналу, а фильтр на `.other` здесь просто никогда не срабатывает (не запрашивается).
+The `nw_path_uses_interface_type` hook is unnecessary for CDEK but doesn't break the RN network classification: `.wifi`/`.cellular`/`.wired` calls proxy through, and the `.other` filter simply never triggers (it's not requested).
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( "ru.mts.mymts", "ru.megafon.lk", "com.cdek.cdekapp" ); }; }
@@ -98,14 +100,14 @@ func isVpnConnected() -> Bool {
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МегаФон | CDEK |
+| | MyMTS | MegaFon | CDEK |
 |---|---|---|---|
-| `__SCOPED__`-детектор | ✅ AppsFlyer (ObjC) | ✅ Swift-копия | ✅ AppsFlyer + Swift `VpnDetect` pod |
-| Подстроки | `tap/tun/ipsec/ppp` | +`utun` | +`utun`, +`ipsec0` |
-| `NWPathMonitor` для VPN | ✅ `GeoWidgetSDK.VPNDetectorService` | ❌ | ❌ |
-| Тип приложения | native Swift | native Swift | React Native (JSI/Hermes) |
-| UI-реакция | снекбар | алерт + FAQ | решается JS-частью |
+| `__SCOPED__` detector | ✅ AppsFlyer (ObjC) | ✅ Swift copy | ✅ AppsFlyer + Swift `VpnDetect` pod |
+| Substrings | `tap/tun/ipsec/ppp` | +`utun` | +`utun`, +`ipsec0` |
+| `NWPathMonitor` for VPN | ✅ `GeoWidgetSDK.VPNDetectorService` | ❌ | ❌ |
+| App type | native Swift | native Swift | React Native (JSI/Hermes) |
+| UI reaction | snackbar | alert + FAQ | handled by JS |
 
-CDEK — наиболее «прозрачный» в плане детектa: чистый алгоритм из публичного RN-пакета, покрывается хуком `CFNetworkCopySystemProxySettings` из коробки.
+CDEK is the most "transparent" detect-wise: a clean algorithm from a public RN package, covered by the `CFNetworkCopySystemProxySettings` hook out of the box.

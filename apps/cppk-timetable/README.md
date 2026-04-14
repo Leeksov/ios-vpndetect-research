@@ -1,29 +1,31 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # Расписание ЦППК (Расписание и билеты)
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | Расписание ЦППК |
 | Bundle ID | `ru.central-ppk.Timetable` |
 | CFBundleExecutable | `Timetable PROD` |
-| Версия | 2.7 |
+| Version | 2.7 |
 | Min iOS | 15.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 10 MB |
+| Architectures | arm64 |
+| Binary size | 10 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Расписание и билеты_v2.7-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Расписание и билеты/Payload/Timetable PROD.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Расписание и билеты/Payload/Timetable PROD.app/Timetable PROD`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Расписание и билеты/Payload/Timetable PROD.app/Timetable PROD`
 
-Внимание: имя бинарника содержит пробел — цитируйте пути при работе из shell.
+Note: the binary name contains a space — quote paths when working from shell.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывается хуком `nw_interface_get_type`, добавленным специально под этот кейс (перепривязывается в GOT `libswiftNetwork.dylib`). Для активации добавить `ru.central-ppk.Timetable` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covered by the `nw_interface_get_type` hook added specifically for this case (rebinds in `libswiftNetwork.dylib` GOT). Add `ru.central-ppk.Timetable` to `Filter.plist`.

@@ -1,112 +1,114 @@
-# Расписание ЦППК — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `Timetable PROD` v2.7 (arm64, Swift + Obj-C)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — **покрытие не гарантировано**, см. раздел «Обход» ниже.
+# CPPK Timetable — VPN / proxy detection
+
+**Binary:** `Timetable PROD` v2.7 (arm64, Swift + Obj-C)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — **coverage not guaranteed**, see "Bypass" section below.
 
 ---
 
 ## TL;DR
 
-В этом приложении — **нестандартный** детектор. Прозаичный `CFNetworkCopySystemProxySettings`-путь здесь **не используется**, и даже raw-символ `nw_path_uses_interface_type` в бинарник не импортирован. Детект полностью построен на Swift-обёртке `Network.framework`:
+This app uses a **non-standard** detector. The pedestrian `CFNetworkCopySystemProxySettings` path is **not used**, and even the raw symbol `nw_path_uses_interface_type` isn't imported. Detection is built entirely on the Swift wrapper for `Network.framework`:
 
-1. Swift-класс `_TtC14Timetable_PROD14NetworkMonitor` хранит property `currentConnectionType: NWInterface.InterfaceType`.
-2. Функция `sub_100293EF4` читает это значение и сравнивает с конкретным case `NWInterface.InterfaceType` (предположительно `.other`).
-3. Если совпало → через `DispatchQueue.main.async` вызывается блок, который в итоге показывает VPN-алерт.
-4. Алерт показывает `-[LaunchManager showActiveVPNWithNotification:]` (строка селектора `0x1006f69fe`) — классический observer `NSNotification` с именем `"activeVPN"` (`0x1007c8da0`).
+1. Swift class `_TtC14Timetable_PROD14NetworkMonitor` holds a property `currentConnectionType: NWInterface.InterfaceType`.
+2. Function `sub_100293EF4` reads that value and compares it against a specific case of `NWInterface.InterfaceType` (presumably `.other`).
+3. On match → `DispatchQueue.main.async` invokes a block that ultimately shows a VPN alert.
+4. The alert is shown by `-[LaunchManager showActiveVPNWithNotification:]` (selector string `0x1006f69fe`) — a classic `NSNotification` observer keyed on `"activeVPN"` (`0x1007c8da0`).
 
-**Импорты Mach-O (полностью):**
+**Mach-O imports (full picture):**
 
-| Символ | Статус |
+| Symbol | Status |
 |---|---|
-| `_CFNetworkCopySystemProxySettings` | ❌ не импортируется |
-| `_nw_path_uses_interface_type` | ❌ не импортируется |
-| `_nw_interface_get_type` | ❌ не импортируется |
-| `_nw_path_enumerate_interfaces` | ❌ не импортируется |
-| `_getifaddrs` / `_if_nametoindex` | ❌ не импортируется |
-| `_SCDynamicStoreCopyProxies` | ❌ не импортируется |
-| `_DNSServiceQueryRecord` | ❌ не импортируется |
-| `_getenv` | ❌ не импортируется |
-| `_sysctl` / `_sysctlbyname` | ✅ (не для VPN — hw model/uptime) |
+| `_CFNetworkCopySystemProxySettings` | ❌ not imported |
+| `_nw_path_uses_interface_type` | ❌ not imported |
+| `_nw_interface_get_type` | ❌ not imported |
+| `_nw_path_enumerate_interfaces` | ❌ not imported |
+| `_getifaddrs` / `_if_nametoindex` | ❌ not imported |
+| `_SCDynamicStoreCopyProxies` | ❌ not imported |
+| `_DNSServiceQueryRecord` | ❌ not imported |
+| `_getenv` | ❌ not imported |
+| `_sysctl` / `_sysctlbyname` | ✅ (not for VPN — hw model / uptime) |
 | `_dlopen` / `_dlsym` | ✅ |
 
-Интересно: из всего списка **ни одного «VPN-ориентированного» C-символа**. Значит весь детект крутится в Swift overlay для `Network.framework` (libswiftNetwork.dylib), а результат сводится к enum-сравнению в Swift-коде главного бинаря.
+Striking: **not a single "VPN-oriented" C symbol** in the list. So the entire detect flows through the Swift overlay for `Network.framework` (libswiftNetwork.dylib), and the result reduces to an enum compare in Swift code in the main binary.
 
 ---
 
-## Цепочка вызовов
+## Call chain
 
-### `sub_100293EF4` — VPN-проверка и диспатч алерта
+### `sub_100293EF4` — VPN check and alert dispatch
 
 ```
-1. Получает синглтон NetworkMonitor
+1. Get the NetworkMonitor singleton
    swift_once(&qword_1008E7C10, sub_10005A404)
-2. Читает NetworkMonitor.currentConnectionType
+2. Read NetworkMonitor.currentConnectionType
    ivar: OBJC_IVAR____TtC14Timetable_PROD14NetworkMonitor_currentConnectionType
-3. Готовит значение-эталон:
-   (v3 + 104)(v7, 0xFFFFFFFF, v2)   // destructiveInjectEnumTag — проекция case'а
-4. Сравнивает через Equatable.==:
+3. Build the reference value:
+   (v3 + 104)(v7, 0xFFFFFFFF, v2)   // destructiveInjectEnumTag — case projection
+4. Compare via Equatable.==:
    dispatch_thunk_of_static_Equatable.==(_:_:)(v7, v4, NWInterface.InterfaceType, v12)
-5. Если true → DispatchQueue.main.async { sub_1002950D8() }
-                                          ↳ sub_1002943EC — показ UIAlertController
+5. If true → DispatchQueue.main.async { sub_1002950D8() }
+                                          ↳ sub_1002943EC — show UIAlertController
 ```
 
-Тэг `0xFFFFFFFF` на шаге 3 — это specific-tag инъекция enum case'а; после `destructiveInjectEnumTag(-1)` + `initializeWithCopy` сам case выбирается по адресу метаданных `unk_1008ED588` (witness table для `NWInterface.InterfaceType`). С высокой вероятностью это `.other` — именно так Network.framework помечает VPN-пути.
+The `0xFFFFFFFF` tag at step 3 is a specific-tag injection of the enum case; after `destructiveInjectEnumTag(-1)` + `initializeWithCopy` the actual case is selected by the metadata at `unk_1008ED588` (witness table for `NWInterface.InterfaceType`). With high probability this is `.other` — that's how Network.framework marks VPN paths.
 
 ### `-[LaunchManager showActiveVPNWithNotification:]` @ `0x100294540`
 
-Тонкий thunk к `sub_1002948DC`, который:
-1. Bridge-ит `NSNotification` → `Notification` (Swift).
-2. Захватывает переданный `a4 = sub_100293EF4` (VPN-check закрытие).
-3. Вызывает `a4()` — то есть проверка запускается **по прилёту нотификации `activeVPN`**.
+A thin thunk to `sub_1002948DC`, which:
+1. Bridges `NSNotification` → `Notification` (Swift).
+2. Captures the passed-in `a4 = sub_100293EF4` (VPN-check closure).
+3. Calls `a4()` — i.e. the check is run **on arrival of the `activeVPN` notification**.
 
-Таким образом — **NetworkMonitor где-то сам по себе постит `NSNotification.Name("activeVPN")`**, а `LaunchManager` наблюдает и реагирует UI-алертом. Поиск постера (`NotificationCenter.default.post`) из-за static-stripping и Swift-манглинга не даёт прямых хитов, но поведенческая цепочка однозначна.
+So **NetworkMonitor itself somewhere posts `NSNotification.Name("activeVPN")`**, and `LaunchManager` observes and reacts with a UI alert. Searching for the poster (`NotificationCenter.default.post`) yields no direct hits due to static stripping and Swift mangling, but the behavioural chain is unambiguous.
 
 ### UI
 
-Два UI-пути:
+Two UI paths:
 
 1. **UIKit alert** — `sub_1002943EC`:
    - `UIAlertController(title:, message:, preferredStyle:.alert)` + 1 action
    - Message: `Возможно у Вас включен VPN. Для корректной работы приложения его стоит выключить` (`0x1007161b0`)
 2. **SwiftUI view body** — `sub_1002CC9DC`:
    - `Text(_:).font(.custom("OpenSans-Bold", size: 16)) + Text(_:).font(.custom("OpenSans-Regular", size: 14))`
-   - Содержит строку `Из-за VPN могут быть ошибки, лучше его отключить` (`0x100716d20`)
-   - Render conditionально от `@State` — это inline-snackbar/label.
+   - Contains the string `Из-за VPN могут быть ошибки, лучше его отключить` (`0x100716d20`)
+   - Conditionally rendered from `@State` — an inline snackbar/label.
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Закрывается хуком `nw_interface_get_type`, добавленным в твик специально под этот кейс. Механика:
+Covered by the `nw_interface_get_type` hook added specifically for this case. Mechanics:
 
-1. `libswiftNetwork.dylib` при доступе к `NWInterface.type` зовёт C-функцию `nw_interface_get_type(nw_interface_t)`. fishhook перепривязывает её в GOT libswiftNetwork (наш `rebind_symbols` ходит по всем загруженным образам).
-2. В хуке мы вызываем оригинал; если он вернул `.other` (0) **и** имя интерфейса (через `nw_interface_get_name`, резолвится dlsym'ом) матчится по VPN-префиксам (`utun/tun/tap/ipsec/ppp/wg`) — возвращаем `.wifi` (1) вместо `.other`.
-3. Swift-сравнение `currentConnectionType == .other` в `sub_100293EF4` никогда не совпадает → VPN-алерт не диспатчится → нотификация `"activeVPN"` не постится.
+1. `libswiftNetwork.dylib`, when accessing `NWInterface.type`, calls the C function `nw_interface_get_type(nw_interface_t)`. fishhook rebinds it in libswiftNetwork's GOT (our `rebind_symbols` walks all loaded images).
+2. In the hook we call the original; if it returned `.other` (0) **and** the interface name (via `nw_interface_get_name`, resolved via dlsym) matches a VPN prefix (`utun/tun/tap/ipsec/ppp/wg`) — we return `.wifi` (1) instead of `.other`.
+3. The Swift `currentConnectionType == .other` comparison in `sub_100293EF4` never matches → no VPN alert dispatched → no `"activeVPN"` notification.
 
-Остальные хуки на этом бинарнике — NO-OP (символы `CFNetworkCopySystemProxySettings`, `getifaddrs`, `nw_path_uses_interface_type` не импортируются).
+The other hooks for this binary are NO-OPs (`CFNetworkCopySystemProxySettings`, `getifaddrs`, `nw_path_uses_interface_type` are not imported).
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "ru.central-ppk.Timetable" ); }; }
 ```
 
-Если по какой-то причине `nw_interface_get_type`-hook не сработает (например, libswiftNetwork использует иной low-level API) — fallback'и:
+If for some reason the `nw_interface_get_type` hook doesn't fire (e.g. libswiftNetwork uses a different low-level API), fallbacks:
 
-1. Хукать `nw_path_enumerate_interfaces` — перехват block-enumerator'а, выкидываем VPN-интерфейсы перед колбэком. Сложнее, чем `nw_interface_get_type`.
-2. Swizzle `NSNotificationCenter.defaultCenter postNotificationName:object:` с фильтром по `"activeVPN"` — гасим нотификацию в момент публикации. Не требует fishhook'а, но привязан к конкретному приложению.
+1. Hook `nw_path_enumerate_interfaces` — wrap the block enumerator and drop VPN interfaces before the callback. Trickier than `nw_interface_get_type`.
+2. Swizzle `NSNotificationCenter.defaultCenter postNotificationName:object:` with a filter on `"activeVPN"` — kill the notification at posting time. Doesn't require fishhook but is app-specific.
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МегаФон | CDEK | DNS-SHOP | ЦППК |
+| | MyMTS | MegaFon | CDEK | DNS-SHOP | CPPK |
 |---|---|---|---|---|---|
 | `__SCOPED__` | ✅ | ✅ | ✅ (×2) | ✅ | ❌ |
-| `nw_path_uses_interface_type` | ✅ | только `.cellular/.wifi` (не VPN) | только `.wifi/.cellular/.wired` (не VPN) | ❌ не импортируется | ❌ не импортируется напрямую, но Swift overlay может использовать |
+| `nw_path_uses_interface_type` | ✅ | only `.cellular/.wifi` (not VPN) | only `.wifi/.cellular/.wired` (not VPN) | ❌ not imported | ❌ not directly imported, but Swift overlay may use it |
 | Swift `NWInterface.InterfaceType` compare | ❌ | ❌ | ❌ | ❌ | ✅ `NetworkMonitor.currentConnectionType == .?` |
-| UI-реакция | снекбар | алерт | JS RN | снекбар | NSNotification → UIAlertController / SwiftUI Text |
-| Покрытие текущим VPNHide | ✅ | ✅ | ✅ | ✅ | ⚠️ under test |
+| UI reaction | snackbar | alert | JS RN | snackbar | NSNotification → UIAlertController / SwiftUI Text |
+| Coverage by current VPNHide | ✅ | ✅ | ✅ | ✅ | ⚠️ under test |
 
-ЦППК — первый из разобранных кейсов, где детект полностью выведен из зоны покрытия fishhook-хуков на стандартные C-символы. Хороший полигон для развития твика.
+CPPK is the first analysed case where detection sits entirely outside the coverage zone of fishhook on standard C symbols. A useful proving ground for tweak development.

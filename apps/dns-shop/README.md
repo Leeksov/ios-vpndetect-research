@@ -1,27 +1,29 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # DNS-SHOP
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | DNS-SHOP |
 | Bundle ID | `com.dns.DNSShop.DNS-SHOP` |
 | CFBundleExecutable | `DNS-SHOP` |
-| Версия | 1.52.0 |
+| Version | 1.52.0 |
 | Min iOS | 15.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 70 MB |
+| Architectures | arm64 |
+| Binary size | 70 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_DNS-SHOP_v1.52.0-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/DNS-SHOP/Payload/DNS-SHOP.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/DNS-SHOP/Payload/DNS-SHOP.app/DNS-SHOP`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/DNS-SHOP/Payload/DNS-SHOP.app/DNS-SHOP`
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает DNS-SHOP детект; для активации добавить `com.dns.DNSShop.DNS-SHOP` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers DNS-SHOP detection. Add `com.dns.DNSShop.DNS-SHOP` to `Filter.plist`.

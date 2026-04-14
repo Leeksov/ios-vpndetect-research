@@ -1,38 +1,40 @@
-# Кинопоиск
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Кинопоиск (Kinopoisk)
+
+| Field | Value |
 |---|---|
 | Display name | Кинопоиск |
 | Bundle ID | `ru.kinopoisk` |
 | CFBundleExecutable | `Kinopoisk` |
-| Версия | 8.41.3 |
+| Version | 8.41.3 |
 | Min iOS | 17.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 165 MB |
+| Architectures | arm64 |
+| Binary size | 165 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Кинопоиск_v8.41.3-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/kinopoisk/Payload/Kinopoisk.app/`
-- Бинарник (для IDA): [`../../binaries/kinopoisk`](../../binaries/kinopoisk)
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/kinopoisk/Payload/Kinopoisk.app/Kinopoisk`
 
-## Заметки по бинарнику
+## Notes
 
-- **3 локальных VPN-детектора + server-side `/tmgrdfrend/checkvpn`** (третий разобранный кейс с server-check после 2GIS и Amediateka).
-- Переиспользует **сразу два shared-SDK** с другими разобранными приложениями:
-  - `MobileAdsCore.MACVpnStatusCheckerImpl` (общий с **Amediateka**)
-  - Yandex AppLib `YAL*` (общий с **Я.Маркетом**)
-- **`YALVPNConnect*`** — это **собственный Yandex anti-blocking прокси** (НЕ детектор пользовательского VPN), управляющий региональным содержимым. Полная Obj-C подсистема (`YALVPNConnectManager`, `YALVPNConfig`, `YALVPNConfigApp`, `YALVPNConnectProductLocation`).
-- Full-screen blocker UI с 6 analytics-событиями (`vpn_blocker_show/hide/reload/close/settings/openurl`).
-- Feature-flag `ios_block_vpn` для server-side kill switch.
-- UI-текст «У вас включен VPN или в вашей стране доступен не весь каталог Кинопоиска» — Кинопоиск осознанно не различает VPN от region-availability в сообщении.
+- **3 local VPN detectors + server-side `/tmgrdfrend/checkvpn`** (third analysed app with server-check, after 2GIS and Amediateka).
+- Reuses **two shared SDKs** with other analysed apps:
+  - `MobileAdsCore.MACVpnStatusCheckerImpl` (shared with **Amediateka**)
+  - Yandex AppLib `YAL*` (shared with **Yandex Market**)
+- **`YALVPNConnect*`** — Yandex's own **anti-blocking proxy** (NOT a user-VPN detector), used to route region-restricted content. A full Obj-C subsystem (`YALVPNConnectManager`, `YALVPNConfig`, `YALVPNConfigApp`, `YALVPNConnectProductLocation`).
+- Full-screen blocker UI with 6 analytics events (`vpn_blocker_show/hide/reload/close/settings/openurl`).
+- Feature-flag `ios_block_vpn` for a server-side kill switch.
+- UI text: «У вас включен VPN или в вашей стране доступен не весь каталог Кинопоиска» — Kinopoisk deliberately conflates VPN with region-availability in its messaging.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает 3 локальных детектора; server-side `/checkvpn` остаётся, но при заглушённой локалке скорее всего не дёргается. Для активации добавить `ru.kinopoisk` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers the 3 local detectors; server-side `/checkvpn` likely won't fire once local triggers are silenced. Add `ru.kinopoisk` to `Filter.plist`.

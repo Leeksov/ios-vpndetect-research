@@ -1,37 +1,41 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # VPNHide
 
-Универсальный Theos-твик, скрывающий активный VPN/Proxy от iOS-приложения. Низкоуровневый bypass через [fishhook](https://github.com/facebook/fishhook) — перепривязка импортов Mach-O, без Logos-хуков на Obj-C/Swift-методы.
+Universal Theos tweak that hides an active VPN/proxy from iOS apps. Low-level bypass via [fishhook](https://github.com/facebook/fishhook) (rebinds Mach-O imports) + `MSHookFunction` (patches dyld_shared_cache function prologues), no Logos hooks on Obj-C/Swift methods.
 
-## Что хукается
+## What gets hooked
 
-| Символ | Что делает хук |
+| Symbol | What the hook does |
 |---|---|
-| `CFNetworkCopySystemProxySettings` | Удаляет из `__SCOPED__` ключи-интерфейсы, содержащие `utun/tun/tap/ipsec/ppp/wg`. Также сбрасывает top-level `HTTPEnable`, `HTTPSEnable`, `SOCKSEnable`, `HTTPProxy`, `HTTPSProxy`, `ProxyAutoConfig*` и аналогичные флаги. |
-| `CFNetworkCopyProxiesForURL` | Безусловно возвращает `[{ kCFProxyTypeKey: kCFProxyTypeNone }]` — one-entry массив, будто резолвинг прокси для URL показал «direct connection». |
-| `nw_path_uses_interface_type` | Для `nw_interface_type_other` (0) всегда возвращает `false`. Для остальных типов — проксирует оригинал. |
-| `nw_interface_get_type` | Если оригинал вернул `.other` и имя интерфейса (через `nw_interface_get_name` из `dlsym`) матчится по VPN-префиксу — возвращает `.wifi` вместо `.other`. Покрывает Swift-код, делающий `path.availableInterfaces.map(\.type)` вместо `path.usesInterfaceType(_:)`. |
-| `getifaddrs` | Отфильтровывает VPN-интерфейсы из linked-list, возвращаемого libc. |
+| `CFNetworkCopySystemProxySettings` | Removes from `__SCOPED__` any interface keys containing `utun/tun/tap/ipsec/ppp/wg`. Also wipes top-level `HTTPEnable`, `HTTPSEnable`, `SOCKSEnable`, `HTTPProxy`, `HTTPSProxy`, `ProxyAutoConfig*` and similar flags. |
+| `CFNetworkCopyProxiesForURL` | Unconditionally returns `[{ kCFProxyTypeKey: kCFProxyTypeNone }]` — a one-entry array, as if proxy resolution for the URL returned «direct connection». |
+| `nw_path_uses_interface_type` | Always returns `false` for `nw_interface_type_other` (0). For other types — passes through to original. |
+| `nw_interface_get_type` | If the original returned `.other` and the interface name (resolved via `nw_interface_get_name` from `dlsym`) matches a VPN prefix — returns `.wifi` instead. Covers Swift code that does `path.availableInterfaces.map(\.type)` rather than `path.usesInterfaceType(_:)`. |
+| `getifaddrs` | Filters VPN interfaces out of the linked list returned by libc. |
+| `sysctl` / `sysctlbyname` | Diagnostic logging only (no behaviour change). |
+| `if_nameindex` | Blanks the names of VPN interfaces in the returned list. |
 
-Перепривязка — в `__attribute__((constructor))` + повторно на каждом `_dyld_register_func_for_add_image`. Это покрывает фреймворки, подгружаемые лениво через `dlopen` после старта процесса (и `libswiftNetwork.dylib` — Swift-overlay для `Network.framework`, вызывающий `nw_interface_get_type` из своих wrapper'ов).
+The first 4 (and `getifaddrs`) are installed in `__attribute__((constructor))`. fishhook covers main-app GOT; `MSHookFunction` patches actual prologues of `nw_*` symbols inside `libnetwork.dylib`/`libswiftNetwork.dylib` (which live in dyld_shared_cache, where fishhook can't reach).
 
-## Когда применим
+## When it works
 
-- Детект через `CFNetworkCopySystemProxySettings.__SCOPED__` + сравнение имён интерфейсов с `tun`/`ipsec`/`ppp`/… (классический AppsFlyer-style).
-- Детект через `CFNetworkCopySystemProxySettings` → прямое чтение `HTTPProxy`/`HTTPSProxy`/`SOCKSProxy` ключей (Гос-услуги-style).
-- Детект через `CFNetworkCopyProxiesForURL` per-URL с проверкой `kCFProxyHostNameKey` (Гос-услуги).
-- Детект через `NWPathMonitor` + `NWPath.usesInterfaceType(.other)` (MyMTS).
-- Детект через `NWPath.availableInterfaces.map(\.type).contains(.other)` — Swift enum-сравнение (ЦППК `NetworkMonitor`).
-- Любой детект на базе `getifaddrs` / `if_nameindex`-обхода.
+- Detection via `CFNetworkCopySystemProxySettings.__SCOPED__` + interface-name substring matching against `tun`/`ipsec`/`ppp`/… (classic AppsFlyer-style).
+- Detection via `CFNetworkCopySystemProxySettings` reading top-level `HTTPProxy`/`HTTPSProxy`/`SOCKSProxy` (Gosuslugi-style).
+- Detection via `CFNetworkCopyProxiesForURL` per-URL with `kCFProxyHostNameKey` check (Gosuslugi).
+- Detection via `NWPathMonitor` + `NWPath.usesInterfaceType(.other)` (MyMTS).
+- Detection via `NWPath.availableInterfaces.map(\.type).contains(.other)` — Swift enum comparison (CPPK `NetworkMonitor`).
+- Any detection based on `getifaddrs` / `if_nameindex` enumeration.
 
-## Когда **не** поможет
+## When it does **not** help
 
-- Server-side детект по IP-адресу.
-- Чтение routing table через `sysctl(net.route.0)` — не хукается (при необходимости добавить отдельный хук).
-- DNS-cross-check через `DNSServiceQueryRecord` — не хукается.
-- Детекторы, читающие дескрипторы сокетов и проверяющие flags интерфейса напрямую через `ioctl(SIOCGIFFLAGS)`.
-- Детекторы на уровне Swift NWPathMonitor, которые сверяют `NWInterface.name` (строку) с VPN-префиксами — тут имя интерфейса настоящее, и мы его не подменяем. Пока в разобранных приложениях такого не встречено.
+- Server-side detection by IP address.
+- Reading the routing table via `sysctl(net.route.0)` — not hooked (add a separate hook if needed).
+- DNS cross-check via `DNSServiceQueryRecord` — not hooked.
+- Detectors that read socket descriptors and check interface flags directly via `ioctl(SIOCGIFFLAGS)`.
+- Swift NWPathMonitor-level detectors that compare `NWInterface.name` (the string) against VPN prefixes — the name is real and we don't substitute it. Not seen yet in any of the analysed apps.
 
-## Сборка
+## Build
 
 ```sh
 cd tweaks/VPNHide
@@ -39,27 +43,25 @@ git submodule add https://github.com/facebook/fishhook.git fishhook
 make package install
 ```
 
-Переменные окружения: `THEOS`, `THEOS_DEVICE_IP`. Для релиза — `FINALPACKAGE=1 make package`.
+Env vars: `THEOS`, `THEOS_DEVICE_IP`. For release: `FINALPACKAGE=1 make package`.
 
-## Настройка под приложение
+For prebuilt `.deb` (rootful and rootless variants) see [Releases](../../../../releases).
 
-[`Filter.plist`](Filter.plist) содержит список bundle ID, для которых твик активируется. По умолчанию там один:
+## App setup
 
-```
-{ Filter = { Bundles = ( "ru.mts.mymts" ); }; }
-```
+[`Filter.plist`](Filter.plist) contains the list of bundle IDs the tweak attaches to. Default has all 15 analysed apps with detection. Add or remove bundle IDs as needed — full app table in the repo root: [`../../README.md`](../../README.md).
 
-Добавьте нужные bundle ID — таблица приложений в репе: [`../../README.md`](../../README.md).
+## Verifying
 
-## Проверка
+1. Bring up VPN (OpenVPN / WireGuard / IKEv2 — anything that creates `utun*`).
+2. Launch the target app.
+3. Confirm the detection triggers (snackbar, feature-gates, `is_vpn_enabled` telemetry field) don't fire.
 
-1. Поднять VPN (OpenVPN / WireGuard / IKEv2 — любой, создающий `utun*`).
-2. Запустить целевое приложение.
-3. Проверить, что триггеры детекта (снекбары, feature-gates, поле `is_vpn_enabled` в телеметрии) не срабатывают.
+Logs: Console.app on the device, filter by `VPNHide`.
 
-Пример per-app разбора, из которого эти хуки выводились — [`apps/mymts/vpn-detection.md`](../../apps/mymts/vpn-detection.md).
+Sample per-app analysis the hooks were derived from — [`apps/mymts/vpn-detection.md`](../../apps/mymts/vpn-detection.md).
 
-## Ограничения
+## Caveats
 
-- Charles/Proxyman сами поднимают прокси-интерфейс — использовать только в паре с твиком, иначе хук пропустит настоящие прокси-настройки, которые вы сами выставили.
-- Не подменяет DNS, не устраняет IP-утечки.
+- Charles/Proxyman themselves bring up a proxy interface — only use in combination with the tweak, otherwise the hook will hide proxy settings you set on purpose.
+- Doesn't substitute DNS, doesn't fix IP leaks.

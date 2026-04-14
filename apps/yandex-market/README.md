@@ -1,37 +1,38 @@
-# Яндекс Маркет
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Яндекс Маркет (Yandex Market)
+
+| Field | Value |
 |---|---|
 | Display name | Маркет |
 | Bundle ID | `ru.yandex.blue.market` |
 | CFBundleExecutable | `Beru` |
-| Версия | 2026.11.1 |
+| Version | 2026.11.1 |
 | Min iOS | 15.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 139 MB |
+| Architectures | arm64 |
+| Binary size | 139 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Яндекс Маркет_v2026.11.1-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Яндекс Маркет/Payload/Beru.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Яндекс Маркет/Payload/Beru.app/Beru`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Яндекс Маркет/Payload/Beru.app/Beru`
 
-CFBundleExecutable — `Beru` (legacy-имя от прежнего названия Беру.ру).
+CFBundleExecutable is `Beru` — legacy from the previous brand "Беру.ру" (pre-Yandex acquisition).
 
-## Заметки по бинарнику
+## Notes
 
-- Без AppsFlyer SDK (нет `+[AppsFlyerUtils isVPNConnected]`). Свои реализации.
-- Два дублирующих VPN-детектора: Obj-C `-[YALAFHTTPClient isVPNConnected]` (Yandex AppLib) и Swift `MarketProtocols.VPNCheckerServiceImpl`.
-- Уникальная reversed-семантика в Obj-C-детекторе: `[needle containsString:iface]` (needle содержит iface), а не наоборот.
-- DI-property `vpnCheckerService` (как у Госуслуг / Beeline / 2GIS / Amediateka).
-- Bundle ID и executable — legacy `Beru` (название проекта до поглощения Яндексом).
+- No AppsFlyer SDK (no `+[AppsFlyerUtils isVPNConnected]`). Custom implementations only.
+- Two duplicate VPN detectors: Obj-C `-[YALAFHTTPClient isVPNConnected]` (Yandex AppLib) and Swift `MarketProtocols.VPNCheckerServiceImpl`.
+- Unique reversed-substring semantics in the Obj-C detector: `[needle containsString:iface]` (needle contains iface), not the other way around.
+- DI property `vpnCheckerService` (same pattern as Gosuslugi / Beeline / 2GIS / Amediateka).
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает оба детектора (`__SCOPED__` чистится → пустой allKeys); для активации добавить `ru.yandex.blue.market` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers both detectors (`__SCOPED__` is wiped → empty allKeys). Add `ru.yandex.blue.market` to `Filter.plist`.

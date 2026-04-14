@@ -1,34 +1,36 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # билайн (My Beeline)
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | билайн |
 | Bundle ID | `ru.beeline.mobile` |
 | CFBundleExecutable | `MyBeeline` |
-| Версия | 5.36.0 |
+| Version | 5.36.0 |
 | Min iOS | 16.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 100 MB |
+| Architectures | arm64 |
+| Binary size | 100 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_билайн_v5.36.0-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/билайн/Payload/MyBeeline.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/билайн/Payload/MyBeeline.app/MyBeeline`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/билайн/Payload/MyBeeline.app/MyBeeline`
 
-## Заметки по бинарнику
+## Notes
 
-- Детектор VPN вынесен в отдельный Swift-framework `MBVpnDetector` с DI-архитектурой (`ProxySettingsProvider` protocol + `SystemProxySettingsProvider` impl).
-- Список VPN-паттернов — Swift-property `vpnProtocols`, вероятно remote-configurable (по симметрии с Госуслугами).
-- UI-плашка gate'ится remote feature-flag'ом (описание «Регулирует предупреждение об активном VPN» @ `0x104338e00`).
-- В бинарник попали debug-комменты с тикетами (`PRFL-9677: Добавить уведомление о включенном VPN`).
+- VPN detector is factored into a dedicated Swift framework `MBVpnDetector` with DI architecture (`ProxySettingsProvider` protocol + `SystemProxySettingsProvider` impl).
+- VPN-pattern list is a Swift property `vpnProtocols`, probably remote-configurable (by symmetry with Gosuslugi).
+- UI banner is gated by a remote feature-flag (description «Регулирует предупреждение об активном VPN» @ `0x104338e00`).
+- Debug comments with ticket IDs leaked into the binary (`PRFL-9677: Добавить уведомление о включенном VPN`).
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает MyBeeline детект; для активации добавить `ru.beeline.mobile` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers MyBeeline detection. Add `ru.beeline.mobile` to `Filter.plist` to activate.

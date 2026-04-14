@@ -1,53 +1,55 @@
-# билайн — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `MyBeeline` v5.36.0 (arm64, Swift + Obj-C)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — текущий твик покрывает, достаточно добавить `ru.beeline.mobile` в [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
+# Beeline — VPN / proxy detection
+
+**Binary:** `MyBeeline` v5.36.0 (arm64, Swift + Obj-C)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — current tweak covers it; just add `ru.beeline.mobile` to [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
 
 ---
 
 ## TL;DR
 
-Два детектора, оба через `CFNetworkCopySystemProxySettings.__SCOPED__`:
+Two detectors, both via `CFNetworkCopySystemProxySettings.__SCOPED__`:
 
-| # | Модуль | Механизм | Адрес |
+| # | Module | Mechanism | Address |
 |---|---|---|---|
-| 1 | AppsFlyer SDK (Obj-C) | `+[AppsFlyerUtils isVPNConnected]` — классика `rangeOfString:` по `tap/tun/ipsec/ppp` | `0x10423BA30` |
-| 2 | `MBVpnDetector.SystemProxySettingsProvider` (Swift) | `CFNetworkCopySystemProxySettings` → `__SCOPED__.allKeys` → возвращает `[String]`, потребитель отдельно сверяет с `vpnProtocols` | `0x102D8AD38` |
+| 1 | AppsFlyer SDK (Obj-C) | `+[AppsFlyerUtils isVPNConnected]` — classic `rangeOfString:` for `tap/tun/ipsec/ppp` | `0x10423BA30` |
+| 2 | `MBVpnDetector.SystemProxySettingsProvider` (Swift) | `CFNetworkCopySystemProxySettings` → `__SCOPED__.allKeys` → returns `[String]`, the consumer separately matches against `vpnProtocols` | `0x102D8AD38` |
 
-`NWPathMonitor` **используется, но не для VPN** — `sub_100BBAF0C` дёргает `nw_path_uses_interface_type(path, .cellular)` для одного-разового callback'а и тут же `nw_path_monitor_cancel`. Стандартный network-reachability, `.other` не запрашивается.
+`NWPathMonitor` **is used, but not for VPN** — `sub_100BBAF0C` calls `nw_path_uses_interface_type(path, .cellular)` for a one-shot callback and immediately `nw_path_monitor_cancel`s. Standard network reachability, `.other` is never queried.
 
-**Импорты Mach-O:**
+**Mach-O imports:**
 
-| Символ | Статус | Контекст |
+| Symbol | Status | Context |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | 2 детектора |
-| `_nw_path_uses_interface_type` | ✅ | reachability, не VPN |
-| `_getifaddrs` | ❌ | не импортируется |
-| `_nw_interface_get_type` | ❌ | не импортируется |
-| `_CFNetworkCopyProxiesForURL` | ❌ | не импортируется |
-| `_sysctl` / `_sysctlbyname` / `_dlopen` / `_dlsym` | ✅ | вспомогательные, не VPN |
+| `_CFNetworkCopySystemProxySettings` | ✅ | 2 detectors |
+| `_nw_path_uses_interface_type` | ✅ | reachability, not VPN |
+| `_getifaddrs` | ❌ | not imported |
+| `_nw_interface_get_type` | ❌ | not imported |
+| `_CFNetworkCopyProxiesForURL` | ❌ | not imported |
+| `_sysctl` / `_sysctlbyname` / `_dlopen` / `_dlsym` | ✅ | helpers, not VPN |
 | `_getenv` / `_if_nametoindex` / `_SCDynamicStoreCopyProxies` / `_DNSServiceQueryRecord` | ❌ | — |
 
 ---
 
-## Детектор №1 — AppsFlyer
+## Detector #1 — AppsFlyer
 
-`+[AppsFlyerUtils isVPNConnected]` @ `0x10423BA30`. Байт-в-байт как в MyMTS/CDEK/Urent — `rangeOfString:` по `tap/tun/ipsec/ppp`. Влияет на AppsFlyer-телеметрию (`AppsFlyerVPNCollectionEnabled` @ `0x104446505`), на UI не выходит.
+`+[AppsFlyerUtils isVPNConnected]` @ `0x10423BA30`. Byte-for-byte identical to MyMTS/CDEK/Urent — `rangeOfString:` for `tap/tun/ipsec/ppp`. Affects AppsFlyer telemetry (`AppsFlyerVPNCollectionEnabled` @ `0x104446505`), no UI impact.
 
 ---
 
-## Детектор №2 — `MBVpnDetector` (Swift)
+## Detector #2 — `MBVpnDetector` (Swift)
 
-Framework с DI-архитектурой:
+A framework with DI architecture:
 
-| Swift-тип | Mangled | Что это |
+| Swift type | Mangled | What it is |
 |---|---|---|
-| `MBVpnDetector.MBVpnDetector` | `$s13MBVpnDetector13MBVpnDetectorVMa` | struct, главный фасад |
-| `MBVpnDetector.SystemProxySettingsProvider` | `$s13MBVpnDetector27SystemProxySettingsProviderVMa` | struct, реальный impl |
-| `MBVpnDetector.ProxySettingsProvider` | `$s13MBVpnDetector21ProxySettingsProviderP` | протокол (для моков в тестах) |
+| `MBVpnDetector.MBVpnDetector` | `$s13MBVpnDetector13MBVpnDetectorVMa` | struct, main facade |
+| `MBVpnDetector.SystemProxySettingsProvider` | `$s13MBVpnDetector27SystemProxySettingsProviderVMa` | struct, real impl |
+| `MBVpnDetector.ProxySettingsProvider` | `$s13MBVpnDetector21ProxySettingsProviderP` | protocol (for test mocks) |
 
-`sub_102D8AD38` — метод `SystemProxySettingsProvider`'а, возвращающий **массив имён интерфейсов из `__SCOPED__`**:
+`sub_102D8AD38` — `SystemProxySettingsProvider`'s method that returns the **array of interface names from `__SCOPED__`**:
 
 ```swift
 func getScopedInterfaces() -> [String] {
@@ -61,48 +63,48 @@ func getScopedInterfaces() -> [String] {
 }
 ```
 
-Матчинг делает **потребитель** (код в основной `MBVpnDetector.MBVpnDetector.isActive`, который мы здесь не раскопали дальше), используя свойство **`vpnProtocols`** (строка `0x104f846c0`) — это массив подстрок-паттернов.
+The matching is done by the **consumer** (code in the main `MBVpnDetector.MBVpnDetector.isActive`, which we haven't dug deeper into here), using the property **`vpnProtocols`** (string `0x104f846c0`) — an array of substring patterns.
 
-По симметрии с Gosuslugi (`vpnProtocolsKeysIdentifiers`) — скорее всего, `vpnProtocols` тоже может подкачиваться из remote-config. Текущее дефолтное содержимое в рантайм-фреймворке не видно из статики, но UI-строки указывают на стандартный набор (`tun/ipsec/...`).
+By symmetry with Gosuslugi (`vpnProtocolsKeysIdentifiers`), `vpnProtocols` is most likely also fed from remote-config. The current default content isn't visible from static analysis, but UI strings indicate the standard set (`tun/ipsec/...`).
 
 ---
 
-## UI-реакция
+## UI reaction
 
-В приложении **несколько точек** показа предупреждения:
+The app has **multiple points** where the warning is shown:
 
-| Строка | Адрес | Контекст |
+| String | Address | Context |
 |---|---|---|
-| `отключите VPN` | `0x1042d6880` | короткий toast |
-| `Не удалось установить безопасное соединение с сервером. Пожалуйста, обновите приложение или отключите VPN` | `0x1042fe6c0` | ошибка TLS |
-| `если vpn выключен, сделайте снимок экрана и обратитесь в поддержку` | `0x10440e8c0` | escape-инструкция |
-| `не получилось — попробуйте без vpn` | `0x10440e940` | ретрай-prompt |
+| `отключите VPN` | `0x1042d6880` | short toast |
+| `Не удалось установить безопасное соединение с сервером. Пожалуйста, обновите приложение или отключите VPN` | `0x1042fe6c0` | TLS error |
+| `если vpn выключен, сделайте снимок экрана и обратитесь в поддержку` | `0x10440e8c0` | escape instruction |
+| `не получилось — попробуйте без vpn` | `0x10440e940` | retry prompt |
 
-Дебаг/feature-flag инфраструктура в строках:
-- `PRFL-9677: Добавить уведомление о включенном VPN` (`0x104338db0`) — ID тикета, по которому фича внедрена. Остался в бинарнике.
-- `Регулирует предупреждение об активном VPN` (`0x104338e00`) — описание feature-флага, управляющего UI-плашкой.
+Debug / feature-flag infrastructure in strings:
+- `PRFL-9677: Добавить уведомление о включенном VPN` (`0x104338db0`) — ticket ID under which the feature was added. Left in the binary.
+- `Регулирует предупреждение об активном VPN` (`0x104338e00`) — description of the feature flag controlling the UI panel.
 
-То есть показ алерта **gate'ится remote-flag'ом** — сервер может временно отключить уведомление, даже если детектор сработал.
-
----
-
-## Телеметрия
-
-- `VPN_enabled` (`0x104358255`) — поле, отправляемое вместе с аналитикой.
-- `AppsFlyerVPNCollectionEnabled` (`0x104446505`) — управляет сбором внутри AppsFlyer SDK.
+So the alert is **gated by a remote flag** — the server can temporarily turn off the notification even if the detector triggered.
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Telemetry
 
-Хук `CFNetworkCopySystemProxySettings` вырезает из `__SCOPED__` все VPN-интерфейсы → оба детектора получают «чистый» словарь:
+- `VPN_enabled` (`0x104358255`) — field sent with analytics.
+- `AppsFlyerVPNCollectionEnabled` (`0x104446505`) — controls collection inside AppsFlyer SDK.
 
-- Детектор №1 (AppsFlyer): `rangeOfString:` ни по чему не матчится → `NO`.
-- Детектор №2 (`SystemProxySettingsProvider.getScopedInterfaces`): возвращает массив, в котором нет VPN-имён → потребитель, матчащий по `vpnProtocols`, получает `false`.
+---
 
-Остальные хуки (`CFNetworkCopyProxiesForURL`, `nw_interface_get_type`, `nw_path_uses_interface_type`, `getifaddrs`) на MyBeeline — NO-OP: либо не импортируются, либо вызываются с non-VPN типами.
+## Bypass via the existing `VPNHide` tweak
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+The `CFNetworkCopySystemProxySettings` hook strips all VPN interfaces from `__SCOPED__` → both detectors get a "clean" dict:
+
+- Detector #1 (AppsFlyer): `rangeOfString:` matches nothing → `NO`.
+- Detector #2 (`SystemProxySettingsProvider.getScopedInterfaces`): returns an array without VPN names → the consumer matching against `vpnProtocols` gets `false`.
+
+Other hooks (`CFNetworkCopyProxiesForURL`, `nw_interface_get_type`, `nw_path_uses_interface_type`, `getifaddrs`) are NO-OPs on MyBeeline: either not imported or called with non-VPN types.
+
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "ru.beeline.mobile" ); }; }
@@ -110,18 +112,18 @@ func getScopedInterfaces() -> [String] {
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МегаФон | CDEK | DNS-SHOP | ЦППК | Urent | Госуслуги | билайн |
+| | MyMTS | MegaFon | CDEK | DNS-SHOP | CPPK | Urent | Gosuslugi | Beeline |
 |---|---|---|---|---|---|---|---|---|
-| Детекторов | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 |
+| Detectors | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 |
 | `__SCOPED__` hardcoded | ✅ | ✅ | ✅×2 | ✅ | ❌ | ✅×3 | ✅ | ✅ (AppsFlyer) |
-| `__SCOPED__` с внешним списком паттернов | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ (`vpnProtocols`) |
-| `NWPathMonitor` для VPN | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `__SCOPED__` with external pattern list | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ (`vpnProtocols`) |
+| `NWPathMonitor` for VPN | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `HTTPProxy` top-level check | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | `CFNetworkCopyProxiesForURL` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Feature-flag gate на UI | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ (`PRFL-9677`) |
-| Debug-комменты тикетов в бинаре | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Feature-flag gate on UI | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ (`PRFL-9677`) |
+| Debug ticket comments in binary | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-билайн — добротный средне-комплексный кейс: архитектура с DI (`ProxySettingsProvider` protocol + `SystemProxySettingsProvider` impl), remote-config список VPN-паттернов как у Госуслуг, но без per-URL проверок и без HTTPProxy-flag'ов. В бинарник попали **debug-коммиты** (`PRFL-9677`) — как и у Urent с полным путём сборки `/Users/user/builds/_csHvbAg/...`, следы CI.
+Beeline is a solid mid-complexity case: DI architecture (`ProxySettingsProvider` protocol + `SystemProxySettingsProvider` impl), remote-config VPN-pattern list like Gosuslugi, but without per-URL checks and without HTTPProxy-flag checks. Debug ticket comments leaked into the binary (`PRFL-9677`) — same as Urent with its full build path `/Users/user/builds/_csHvbAg/...`, CI traces.

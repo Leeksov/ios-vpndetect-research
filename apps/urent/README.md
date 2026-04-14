@@ -1,27 +1,29 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # Urent
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | Urent |
 | Bundle ID | `ru.urentbike.app` |
 | CFBundleExecutable | `Urent` |
-| Версия | 1.94.1 |
+| Version | 1.94.1 |
 | Min iOS | 16.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 67 MB |
+| Architectures | arm64 |
+| Binary size | 67 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Urent_v1.94.1-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Urent/Payload/Urent.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Urent/Payload/Urent.app/Urent`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Urent/Payload/Urent.app/Urent`
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает Urent (3 дублирующих детектора на `__SCOPED__`); для активации добавить `ru.urentbike.app` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers Urent (3 duplicate `__SCOPED__`-based detectors). Add `ru.urentbike.app` to `Filter.plist`.

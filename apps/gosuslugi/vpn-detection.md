@@ -1,45 +1,47 @@
-# Госуслуги — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `Gosuslugi` v25.3.0 (arm64, Swift + Obj-C, большое приложение — ~131 MB)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — существующий твик покрывает большинство путей, но с оговорками (см. ниже).
+# Gosuslugi — VPN / proxy detection
+
+**Binary:** `Gosuslugi` v25.3.0 (arm64, Swift + Obj-C, large app — ~131 MB)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — the existing tweak covers most paths, with caveats (see below).
 
 ---
 
 ## TL;DR
 
-Самый «навороченный» детектор из разобранных. Живёт в **двух отдельных фреймворках**: `GUNetwork.VPNCheckService` и отдельный framework `VPNCheckService` (со своим DI-контейнером `VPNCheckAssembly`, событиями `SpeedTestEvent`, строковыми ресурсами `VPNCheckServiceStrings`). Используются **5 разных функций**, хукающихся на `CFNetworkCopySystemProxySettings` / `CFNetworkCopyProxiesForURL`:
+The most elaborate detector among the analysed apps. Lives in **two separate frameworks**: `GUNetwork.VPNCheckService` and a standalone `VPNCheckService` framework (with its own DI container `VPNCheckAssembly`, `SpeedTestEvent` events, `VPNCheckServiceStrings` string resources). **5 different functions** are used, hooking into `CFNetworkCopySystemProxySettings` / `CFNetworkCopyProxiesForURL`:
 
-| # | Функция | Механизм | Где |
+| # | Function | Mechanism | Where |
 |---|---|---|---|
-| 1 | `sub_100538700` | `__SCOPED__` → **hardcoded** массив из 5 подстрок `tap/tun/ppp/ipsec/utun` | main app |
-| 2 | `sub_10004BE1C` | `__SCOPED__` → **externally supplied** массив подстрок (`vpnProtocolsKeysIdentifiers`) | `GUNetwork.VPNCheckService` |
-| 3 | `sub_101124D5C` | то же, что №2 | отдельный `VPNCheckService.VPNCheckService` |
-| 4 | `sub_1005451AC` | `CFNetworkCopySystemProxySettings` → top-level keys `HTTPProxy` / `HTTPSProxy` | main app — ловит ЛЮБОЙ системный HTTP(S)-proxy |
-| 5 | `sub_1005383B0` / `sub_103687240` | `CFNetworkCopyProxiesForURL(url, settings)` → проверка `kCFProxyHostNameKey` первого результата | dup |
+| 1 | `sub_100538700` | `__SCOPED__` → **hardcoded** array of 5 substrings `tap/tun/ppp/ipsec/utun` | main app |
+| 2 | `sub_10004BE1C` | `__SCOPED__` → **externally supplied** substring array (`vpnProtocolsKeysIdentifiers`) | `GUNetwork.VPNCheckService` |
+| 3 | `sub_101124D5C` | same as #2 | standalone `VPNCheckService.VPNCheckService` |
+| 4 | `sub_1005451AC` | `CFNetworkCopySystemProxySettings` → top-level keys `HTTPProxy` / `HTTPSProxy` | main app — catches ANY system HTTP(S) proxy |
+| 5 | `sub_1005383B0` / `sub_103687240` | `CFNetworkCopyProxiesForURL(url, settings)` → checks `kCFProxyHostNameKey` of the first result | dup |
 
-`NWPathMonitor` **используется**, но **не для VPN** — функция `sub_1057E2938` (очень жирная, похожа на Rust-скомпилированный код) опрашивает `nw_path_uses_interface_type` последовательно с `.wifi`, `.wired`, `.cellular`, плюс `CTTelephonyNetworkInfo.currentRadioAccessTechnology` — это **классификатор типа подключения** (wifi / wired / cellular / 2G-5G), выдаёт один из enum-case'ов. `.other` никогда не запрашивается.
+`NWPathMonitor` **is** used, but **not for VPN** — function `sub_1057E2938` (very heavy, looks like Rust-compiled code) sequentially queries `nw_path_uses_interface_type` with `.wifi`, `.wired`, `.cellular`, plus `CTTelephonyNetworkInfo.currentRadioAccessTechnology` — a **connection-type classifier** (wifi / wired / cellular / 2G-5G), produces one of those enum cases. `.other` is never queried.
 
-**Импорты Mach-O (только VPN-релевантные):**
+**Mach-O imports (VPN-relevant only):**
 
-| Символ | Статус | Используется для |
+| Symbol | Status | Used for |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | 6 разных функций (детекторы 1–5 + AppsFlyer-like) |
-| `_CFNetworkCopyProxiesForURL` | ✅ | детекторы 5 |
-| `_nw_path_uses_interface_type` | ✅ | **не** для VPN, только классификация wifi/cellular/wired |
-| `_getifaddrs` | ✅ | не для VPN (вспомогательные network-info) |
-| `_sysctl` / `_sysctlbyname` / `_getenv` / `_dlopen` / `_dlsym` / `_if_nametoindex` | ✅ | не для VPN |
+| `_CFNetworkCopySystemProxySettings` | ✅ | 6 different functions (detectors 1–5 + AppsFlyer-like) |
+| `_CFNetworkCopyProxiesForURL` | ✅ | detector 5 |
+| `_nw_path_uses_interface_type` | ✅ | **not** for VPN, only wifi/cellular/wired classification |
+| `_getifaddrs` | ✅ | not for VPN (network-info helpers) |
+| `_sysctl` / `_sysctlbyname` / `_getenv` / `_dlopen` / `_dlsym` / `_if_nametoindex` | ✅ | not for VPN |
 | `_SCDynamicStoreCopyProxies` | ❌ | — |
 | `_DNSServiceQueryRecord` | ❌ | — |
 | `_nw_interface_get_type` / `_nw_path_enumerate_interfaces` | ❌ | — |
 
 ---
 
-## Детектор №1 — hardcoded `__SCOPED__`-scan (`sub_100538700`)
+## Detector #1 — hardcoded `__SCOPED__` scan (`sub_100538700`)
 
-Стандартный алгоритм, как в DNS-SHOP / Megafon. Подстроки захардкожены прямо в функции:
+Standard algorithm, like in DNS-SHOP / MegaFon. Substrings hardcoded right in the function:
 
-| Литерал | Байты | ASCII |
+| Literal | Bytes | ASCII |
 |---|---|---|
 | `7364980` | `74 61 70 00` | `tap` |
 | `7239028` | `74 75 6E 00` | `tun` |
@@ -47,51 +49,51 @@
 | `0x6365_7370_69` | `69 70 73 65 63` | `ipsec` |
 | `1853191285` | `75 74 75 6E` | `utun` |
 
-Хелпер `sub_10004C1B8` — `String.contains(substring)`.
+Helper `sub_10004C1B8` is `String.contains(substring)`.
 
-Массив из 5 строк лежит в global storage `qword_107610D08`, собирается через `swift_arrayDestroy(…, 5, …)` при релизе.
+The 5-string array lives in global storage `qword_107610D08`, released via `swift_arrayDestroy(…, 5, …)`.
 
 ---
 
-## Детекторы №2/3 — configurable `__SCOPED__`-scan
+## Detectors #2 / #3 — configurable `__SCOPED__` scan
 
-`sub_10004BE1C` (из `GUNetwork.VPNCheckService`) и `sub_101124D5C` (из отдельного `VPNCheckService`-framework) — двойные реализации одного и того же. Отличаются от №1 тем, что массив подстрок **не захардкожен**, а берётся из instance-поля класса:
+`sub_10004BE1C` (from `GUNetwork.VPNCheckService`) and `sub_101124D5C` (from the standalone `VPNCheckService` framework) — twin implementations of the same thing. They differ from #1 in that the substring array is **not hardcoded** but pulled from an instance field of the class:
 
 ```
 v11 = *(v0 + 16);     // GUNetwork.VPNCheckService.vpnProtocolsKeysIdentifiers
 v11 = *(v0 + 152);    // VPNCheckService.VPNCheckService.vpnProtocolsKeysIdentifiers
 ```
 
-Название поля виден в строке `0x1059e1df0` — `vpnProtocolsKeysIdentifiers`. Это массив `[String]`, скорее всего заполняется:
-- либо из Info.plist / asset-бандла,
-- либо из remote config (Firebase / бекендовский флаг),
-- либо из hardcoded-дефолтов с возможностью override.
+The field name is visible in string `0x1059e1df0` — `vpnProtocolsKeysIdentifiers`. It's a `[String]` array, most likely populated:
+- either from an Info.plist / asset bundle,
+- or from remote config (Firebase / backend flag),
+- or from hardcoded defaults with override capability.
 
-Это даёт Госуслугам возможность **добавлять новые VPN-паттерны без релиза** — если завтра появится какой-нибудь новый `wg_*` / `vpn_*` / `shadowsocks_*` интерфейс, достаточно пушнуть обновлённый конфиг. Уникальная для разобранных приложений особенность.
+This gives Gosuslugi the ability to **add new VPN patterns without releasing an update** — if some new `wg_*` / `vpn_*` / `shadowsocks_*` interface appears tomorrow, just push an updated config. Unique among the analysed apps.
 
-Цикл одинаковый: для каждого ключа в `__SCOPED__` → для каждой подстроки в `vpnProtocolsKeysIdentifiers` → `String.contains()`. Если совпало — `return 1`.
+The loop is the same: for each key in `__SCOPED__` → for each substring in `vpnProtocolsKeysIdentifiers` → `String.contains()`. On match — `return 1`.
 
 ---
 
-## Детектор №4 — прямой proxy-check (`sub_1005451AC`)
+## Detector #4 — direct proxy check (`sub_1005451AC`)
 
-Не ходит в `__SCOPED__`. Читает top-level ключи системного словаря:
+Doesn't go into `__SCOPED__`. Reads top-level keys of the system dictionary:
 
-| Swift-литерал | Байты | ASCII |
+| Swift literal | Bytes | ASCII |
 |---|---|---|
 | `0x786F725050545448` + `0xE900000000000079` | `48 54 54 50 50 72 6F 78 79` | `HTTPProxy` (9) |
 | `0x6F72505350545448` + `0xEA00000000007978` | `48 54 54 50 53 50 72 6F 78 79` | `HTTPSProxy` (10) |
 
-Если **хоть один** из ключей есть в словаре — возвращает `true`. То есть эта функция ловит **любой** системный HTTP/HTTPS-proxy — Charles, Proxyman, корпоративный PAC, WireGuard-через-HTTP-прокси и т.п. Не VPN в узком смысле, а вообще любой MITM.
+If **either** key is in the dict — returns `true`. So this function catches **any** system HTTP/HTTPS proxy — Charles, Proxyman, corporate PAC, WireGuard-over-HTTP-proxy and so on. Not VPN in the strict sense, but any MITM.
 
 ---
 
-## Детектор №5 — per-URL proxy-resolver (`sub_1005383B0` / `sub_103687240`)
+## Detector #5 — per-URL proxy resolver (`sub_1005383B0` / `sub_103687240`)
 
-Две идентичные функции (дубль). Схема:
+Two identical functions (a duplicate). Scheme:
 
 ```swift
-let url = URL(string: "…")!         // длина 24 байта, ресурс lk.gosuslugi или похожий
+let url = URL(string: "…")!         // 24 bytes long, lk.gosuslugi resource or similar
 let settings = CFNetworkCopySystemProxySettings()
 let proxies: CFArray = CFNetworkCopyProxiesForURL(url as CFURL, settings)
 let dict = (proxies as? [[String: Any]])?.first
@@ -102,48 +104,48 @@ if host != expected && host != nil {
 return false
 ```
 
-Логика: если для конкретного URL резолвится proxy, и его hostname **не равен** заранее ожидаемому (например, доверенному CDN-endpoint'у) — считается, что трафик идёт через внешний прокси/VPN.
+Logic: if a proxy resolves for a specific URL and its hostname **isn't equal** to the expected one (e.g. a trusted CDN endpoint) — the traffic is considered to be going through an external proxy/VPN.
 
-Это **самая хитрая** из 5 проверок: она срабатывает **только тогда, когда VPN реально ломает маршрутизацию** к конкретным URL.
+This is the **trickiest** of the 5 checks: it fires only when the VPN actually breaks routing to a specific URL.
 
 ---
 
-## Реакция на детект
+## Reaction to detection
 
 **UI:**
-- Свойство `isVPNEnabled` (строка `0x1059e8e8b`)
-- Свойство `vpnActiveBefore` (строка `0x1059e8db8`) — для детекции изменения состояния между запусками
-- Debug-флаг `debugDoNotShowVPNSnackbar` (строка `0x1059e9030`) — доступен разработчикам для подавления
-- Ивент-имя в логах: **`снекбар VPN`** (строка `0x105a0d9e0`)
-- `VPNSnackbarMessage` enum (metadata `$s15VPNCheckService18VPNSnackbarMessageOMa`) и `VPNCheckServiceStrings` — локализованные строки для снекбара
+- Property `isVPNEnabled` (string `0x1059e8e8b`)
+- Property `vpnActiveBefore` (string `0x1059e8db8`) — to detect state change between launches
+- Debug flag `debugDoNotShowVPNSnackbar` (string `0x1059e9030`) — available to developers for suppression
+- Event name in logs: **`снекбар VPN`** (string `0x105a0d9e0`)
+- `VPNSnackbarMessage` enum (metadata `$s15VPNCheckService18VPNSnackbarMessageOMa`) and `VPNCheckServiceStrings` — localised snackbar strings
 
 **Analytics:**
-- Регулярка на имя события: **`^(vpn_on)|(vpn_off)|(vpn_unknown)$`** (строка `0x105a6d940`)
-- Три состояния: VPN включён, выключен, не определено (`vpn_unknown`)
+- Event-name regex: **`^(vpn_on)|(vpn_off)|(vpn_unknown)$`** (string `0x105a6d940`)
+- Three states: VPN on, off, undetermined (`vpn_unknown`)
 
-**Дополнительно:**
-- `-[EnvironmentDataProvider isVpnEnabled]` в `GUMetricsImplementation` (`0x100536fbc`) — экспозиция в метрики
-- `vpnEnabled` (Objective-C property, строка `0x1059e0ac0`)
-- `vpnService` (строка `0x1059e0db1`)
+**Additional:**
+- `-[EnvironmentDataProvider isVpnEnabled]` in `GUMetricsImplementation` (`0x100536fbc`) — exposed to metrics
+- `vpnEnabled` (Objective-C property, string `0x1059e0ac0`)
+- `vpnService` (string `0x1059e0db1`)
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Все 5 детекторов закрываются:
+All 5 detectors are covered:
 
-| Детектор | Хук | Эффект |
+| Detector | Hook | Effect |
 |---|---|---|
-| №1 (`sub_100538700`) | `CFNetworkCopySystemProxySettings` | `__SCOPED__` очищен от VPN-ключей → ни одна подстрока не матчится → `false`. |
-| №2 (`sub_10004BE1C`) | `CFNetworkCopySystemProxySettings` | То же; remote-config список подстрок роли не играет, т.к. ключей-кандидатов не остаётся. |
-| №3 (`sub_101124D5C`) | `CFNetworkCopySystemProxySettings` | То же. |
-| №4 (`sub_1005451AC`) | `CFNetworkCopySystemProxySettings` | Top-level `HTTPProxy`/`HTTPSProxy`/`SOCKSProxy` и `*Enable`-флаги вычищены → проверка даёт `false`. |
-| №5 (`sub_1005383B0` / `sub_103687240`) | `CFNetworkCopyProxiesForURL` | Хук безусловно возвращает `[{ kCFProxyTypeKey: kCFProxyTypeNone }]` → `kCFProxyHostNameKey` отсутствует → `swift_dynamicCast` на `String` падает → ранний `return 0` (LABEL_19/20). |
+| #1 (`sub_100538700`) | `CFNetworkCopySystemProxySettings` | `__SCOPED__` cleaned of VPN keys → no substring matches → `false`. |
+| #2 (`sub_10004BE1C`) | `CFNetworkCopySystemProxySettings` | Same; the remote-config substring list is irrelevant since no candidate keys remain. |
+| #3 (`sub_101124D5C`) | `CFNetworkCopySystemProxySettings` | Same. |
+| #4 (`sub_1005451AC`) | `CFNetworkCopySystemProxySettings` | Top-level `HTTPProxy`/`HTTPSProxy`/`SOCKSProxy` and `*Enable` flags wiped → check returns `false`. |
+| #5 (`sub_1005383B0` / `sub_103687240`) | `CFNetworkCopyProxiesForURL` | Hook unconditionally returns `[{ kCFProxyTypeKey: kCFProxyTypeNone }]` → `kCFProxyHostNameKey` absent → `swift_dynamicCast` to `String` fails → early `return 0` (LABEL_19/20). |
 
-Ограничение:
-- ⚠️ Детекторы №2/№3 используют **externally-supplied** массив подстрок из `vpnProtocolsKeysIdentifiers`. Если remote config когда-нибудь добавит туда такие строки, которых нет в нашем фильтре (например, гипотетический `"shadowsocks"` или `"mesh0"`), наш хук их не вычистит из `__SCOPED__`, и детектор сможет их матчнуть. Текущий фильтр (`tap/tun/ppp/ipsec/utun/wg`) покрывает все известные сейчас VPN-технологии. При необходимости расширить — править массив `kVPNNeedles` в [`Tweak.mm`](../../tweaks/VPNHide/Tweak.mm).
+Caveat:
+- ⚠️ Detectors #2/#3 use an **externally supplied** substring array from `vpnProtocolsKeysIdentifiers`. If remote config ever adds strings not in our filter (e.g. hypothetically `"shadowsocks"` or `"mesh0"`), our hook won't strip them from `__SCOPED__` and the detector could match. The current filter (`tap/tun/ppp/ipsec/utun/wg`) covers all currently known VPN tech. If needed, edit the `kVPNNeedles` array in [`Tweak.mm`](../../tweaks/VPNHide/Tweak.mm).
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "com.minsvyaz.gosuslugi" ); }; }
@@ -151,25 +153,25 @@ return false
 
 ---
 
-## Сравнение с другими приложениями
+## Comparison with other apps
 
-| | MyMTS | МегаФон | CDEK | DNS-SHOP | ЦППК | Urent | Госуслуги |
+| | MyMTS | MegaFon | CDEK | DNS-SHOP | CPPK | Urent | Gosuslugi |
 |---|---|---|---|---|---|---|---|
-| Кол-во детекторов | 2 | 1 | 2 | 1 | 1 | 3 | **5** |
-| `__SCOPED__` с hardcoded паттернами | ✅ | ✅ | ✅ | ✅ | ❌ | ✅×3 | ✅ |
-| `__SCOPED__` с remote-config паттернами | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ **(уникально)** |
+| Number of detectors | 2 | 1 | 2 | 1 | 1 | 3 | **5** |
+| `__SCOPED__` with hardcoded patterns | ✅ | ✅ | ✅ | ✅ | ❌ | ✅×3 | ✅ |
+| `__SCOPED__` with remote-config patterns | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ **(unique)** |
 | Top-level `HTTPProxy/HTTPSProxy` check | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | `CFNetworkCopyProxiesForURL` per-URL | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| `NWPathMonitor` для VPN | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
-| Двойная реализация в отдельных фреймворках | ❌ | ❌ | ✅ (AppsFlyer + Pod) | ❌ | ❌ | ✅ (Services + app) | ✅ (`GUNetwork` + `VPNCheckService`) |
+| `NWPathMonitor` for VPN | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Dual implementation in separate frameworks | ❌ | ❌ | ✅ (AppsFlyer + Pod) | ❌ | ❌ | ✅ (Services + app) | ✅ (`GUNetwork` + `VPNCheckService`) |
 | Three-state analytics (on/off/**unknown**) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Debug-flag подавления | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `debugDoNotShowVPNSnackbar` |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ | ⚠️ 4/5 из коробки |
+| Debug suppression flag | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `debugDoNotShowVPNSnackbar` |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ | ⚠️ 4/5 out of the box |
 
-Gosuslugi — сильно выделяется по качеству детектора. Уникальные черты:
-- **Remote-configurable** список подстрок VPN-интерфейсов (не надо ждать релиза).
-- Multi-pronged approach: 5 различных функций, покрывающих разные категории прокси/VPN.
-- Трёхзначная аналитика с состоянием «unknown» — значит, они осознанно работают с неопределённостью детекта.
-- Debug-флаг для разработчиков — видно, что код активно поддерживается.
+Gosuslugi stands out heavily in detector quality. Unique traits:
+- **Remote-configurable** list of VPN interface substrings (no need to wait for a release).
+- Multi-pronged approach: 5 different functions covering different proxy/VPN categories.
+- Three-valued analytics with an "unknown" state — they consciously work with detection ambiguity.
+- Developer debug flag — clear sign the code is actively maintained.
 
-Скорее всего, эта система — часть `GUNetwork`/`VPNCheckService` shared framework, который используется и в других приложениях Минцифры.
+This system is most likely part of the `GUNetwork`/`VPNCheckService` shared framework also used in other Mintsifry (Russian Ministry of Digital Development) apps.

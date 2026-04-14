@@ -1,29 +1,31 @@
-# Rostic's (бывш. KFC Russia)
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Rostic's (formerly KFC Russia)
+
+| Field | Value |
 |---|---|
 | Display name | Rostic's |
 | Bundle ID | `ru.yum.KFC-Russia` |
 | CFBundleExecutable | `kfc` |
-| Версия | 10.29.0 |
+| Version | 10.29.0 |
 | Min iOS | 16.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 65 MB |
+| Architectures | arm64 |
+| Binary size | 65 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Rostic's__Еда_доставка,_акции_v10_29_0_AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/rostics/Payload/kfc.app/`
-- Бинарник (для IDA): [`../../binaries/rostics`](../../binaries/rostics)
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/rostics/Payload/kfc.app/kfc`
 
-Bundle ID и имя executable — legacy KFC-эпохи (`ru.yum.KFC-Russia` / `kfc`), ребренд в Rostic's произошёл только на UI-уровне.
+Bundle ID and executable name are legacy from the KFC era (`ru.yum.KFC-Russia` / `kfc`) — the rebrand to Rostic's happened only at UI level.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает Rostic's (один AppsFlyer-детектор); для активации добавить `ru.yum.KFC-Russia` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers Rostic's (a single AppsFlyer-style detector). Add `ru.yum.KFC-Russia` to `Filter.plist`.

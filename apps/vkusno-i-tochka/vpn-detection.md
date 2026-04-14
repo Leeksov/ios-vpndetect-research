@@ -1,39 +1,41 @@
-# Вкусно — и точка — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `mcd-ios` v13.2.0 (arm64, Swift + Obj-C)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — текущий твик покрывает; добавить `com.mcdonaldsru.mcd` в [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
+# Vkusno — i Tochka — VPN / proxy detection
+
+**Binary:** `mcd-ios` v13.2.0 (arm64, Swift + Obj-C)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — current tweak covers it; add `com.mcdonaldsru.mcd` to [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
 
 ---
 
 ## TL;DR
 
-**Один детектор.** Своя Swift-обёртка `mcd_ios.VPNChecker`, классический `__SCOPED__`-scan через `StringProtocol.contains`. Без AppsFlyer (что выделяет среди других ресторанных/коммерческих апп — обычно AppsFlyer-детектор присутствует).
+**One detector.** Custom Swift wrapper `mcd_ios.VPNChecker`, classic `__SCOPED__` scan via `StringProtocol.contains`. **No AppsFlyer** (which is unusual among the analysed restaurant/commercial apps — usually an AppsFlyer detector is present).
 
-| # | Модуль | Механизм | Адрес |
+| # | Module | Mechanism | Address |
 |---|---|---|---|
-| 1 | `mcd_ios.VPNChecker` (Swift) | `CFNetworkCopySystemProxySettings` → `__SCOPED__.allKeys` → `String.contains` по `tap/tun/ppp/ipsec` | `0x1002AF1CC` |
+| 1 | `mcd_ios.VPNChecker` (Swift) | `CFNetworkCopySystemProxySettings` → `__SCOPED__.allKeys` → `String.contains` for `tap/tun/ppp/ipsec` | `0x1002AF1CC` |
 
-Подстроки — **4 штуки** (`tap/tun/ppp/ipsec`), без `utun` — самый «короткий» набор из разобранных приложений (как у Beeline/MyMTS/CDEK через AppsFlyer-классику).
+Substrings — **4** (`tap/tun/ppp/ipsec`), no `utun` — the shortest set among the analysed apps (same as Beeline/MyMTS/CDEK via the AppsFlyer classic).
 
-`nw_path_uses_interface_type` импортируется, но **не для VPN** — `sub_100C5D964` опрашивает `.wifi/.cellular/.wired` и пишет результат в `setNetworkType:` (один-в-один как у Megafon, CDEK, DNS-SHOP — стандартный network-type classifier).
+`nw_path_uses_interface_type` is imported but **not for VPN** — `sub_100C5D964` queries `.wifi/.cellular/.wired` and writes the result into `setNetworkType:` (1:1 with MegaFon, CDEK, DNS-SHOP — standard network-type classifier).
 
-**Импорты Mach-O:**
+**Mach-O imports:**
 
-| Символ | Статус | Где |
+| Symbol | Status | Where |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | только `VPNChecker` (`sub_1002AF1CC`) |
-| `_nw_path_uses_interface_type` | ✅ | только classifier `sub_100C5D964`, не VPN |
-| `_getifaddrs` | ✅ | вспомогательный, не VPN |
+| `_CFNetworkCopySystemProxySettings` | ✅ | only `VPNChecker` (`sub_1002AF1CC`) |
+| `_nw_path_uses_interface_type` | ✅ | classifier `sub_100C5D964` only, not VPN |
+| `_getifaddrs` | ✅ | helper, not VPN |
 | `_nw_interface_get_type` / `_CFNetworkCopyProxiesForURL` / `_SCDynamicStoreCopyProxies` / `_DNSServiceQueryRecord` | ❌ | — |
 
 ---
 
-## Детектор — `sub_1002AF1CC`
+## Detector — `sub_1002AF1CC`
 
-Метод Swift-класса `_TtC7mcd_ios10VPNChecker` (metadata accessor `$s7mcd_ios10VPNCheckerCMa` @ `0x1002af1ac`).
+Method on Swift class `_TtC7mcd_ios10VPNChecker` (metadata accessor `$s7mcd_ios10VPNCheckerCMa` @ `0x1002af1ac`).
 
-Псевдокод:
+Pseudocode:
 
 ```swift
 func isVpnEnabled() -> Bool {
@@ -49,103 +51,103 @@ func isVpnEnabled() -> Bool {
 }
 ```
 
-Литералы:
+Literals:
 
-| В декомпиляции | Байты | ASCII |
+| In decomp | Bytes | ASCII |
 |---|---|---|
 | `7364980` | `74 61 70 00` | `tap` |
 | `7239028` | `74 75 6E 00` | `tun` |
 | `7368816` | `70 70 70 00` | `ppp` |
 | `0x6365_7370_69` | `69 70 73 65 63` | `ipsec` |
 
-Хелпер contains — стандартный `StringProtocol.contains<A>(_:)`.
+Contains helper — standard `StringProtocol.contains<A>(_:)`.
 
 ---
 
-## UI и реактивный pipeline
+## UI and reactive pipeline
 
 ### `VPNInformerView`
 
-Swift-класс `_TtC7mcd_ios15VPNInformerView` (`0x1029910e0`):
+Swift class `_TtC7mcd_ios15VPNInformerView` (`0x1029910e0`):
 
-| Метод | Адрес |
+| Method | Address |
 |---|---|
 | `initWithFrame:` | `0x1000c1448` |
 | `initWithCoder:` | `0x1000c1524` |
 | `.cxx_destruct` | `0x1000c154c` |
 | Type metadata | `$s7mcd_ios15VPNInformerViewCMa` @ `0x1000c15c8` |
 
-Это **`UIView`** (не cell, не window) — банер/информер, накладываемый на экран при детекте.
+It's a **`UIView`** (not a cell, not a window) — a banner/informer overlaid on the screen on detect.
 
-### Локализация
+### Localisation
 
-| Ключ | Адрес |
+| Key | Address |
 |---|---|
 | `VPN.Informer.Title` | `0x102991180` |
 | `VPN.Informer.Subtitle` | `0x102991160` |
 
 ### State / dismissal
 
-- `vpnInformerWasHidden` (`0x102988cd0`) — флаг, что юзер закрыл информер вручную (UserDefaults persistance)
-- `isNeedToHideVPNInformer` (`0x102bf25b0`) — getter, агрегирующий проверки (вкл. dismissal-state и текущий VPN-статус)
+- `vpnInformerWasHidden` (`0x102988cd0`) — flag indicating user closed the informer manually (UserDefaults persistence)
+- `isNeedToHideVPNInformer` (`0x102bf25b0`) — getter aggregating checks (incl. dismissal-state and current VPN status)
 
 ### Notification
 
-`ru.adv.mcd-dev.VPN-informer-need-to-hide` (`0x102986ef0`) — `NSNotification.Name`. Постится из 4 разных мест (4 xref'а от data-секции). Имя в reverse-DNS формате с `mcd-dev` — оставлен dev-namespace в релизе.
+`ru.adv.mcd-dev.VPN-informer-need-to-hide` (`0x102986ef0`) — `NSNotification.Name`. Posted from 4 different places (4 xrefs from data section). Reverse-DNS name with `mcd-dev` — dev-namespace left in the release.
 
-Получатель (наблюдатель) — `VPNInformerView`, который при получении этого уведомления скрывает себя.
+The receiver (observer) is `VPNInformerView`, which hides itself on this notification.
 
-### Свойства / API
+### Properties / API
 
-| Имя | Адрес | Назначение |
+| Name | Address | Purpose |
 |---|---|---|
-| `vpnEnabled` | `0x102a2c667`, `0x102b861a2`, `0x102c22ed0`, `0x102c2407c` | Bool property (несколько copy в meta) |
-| `isVpnEnabled` | `0x102c22afa` | геттер |
-| `setVpnEnabled:` | `0x102b79e9d` | сеттер (Obj-C bridge) |
+| `vpnEnabled` | `0x102a2c667`, `0x102b861a2`, `0x102c22ed0`, `0x102c2407c` | Bool property (multiple meta copies) |
+| `isVpnEnabled` | `0x102c22afa` | getter |
+| `setVpnEnabled:` | `0x102b79e9d` | setter (Obj-C bridge) |
 | `_vpnEnabled` | `0x102c24293` | backing ivar |
-| `vpnStatus` | `0x102c240a1` | enum/value-type |
-| `vpn_enabled` | `0x102a2ed2a` | snake-case telemetry-ключ |
+| `vpnStatus` | `0x102c240a1` | enum / value-type |
+| `vpn_enabled` | `0x102a2ed2a` | snake-case telemetry key |
 
 ---
 
-## Что **не** делает
+## What it does **not** do
 
-- Нет AppsFlyer-детектора (и `+[AppsFlyerUtils isVPNConnected]` не встречается в листинге функций — AppsFlyer SDK не интегрирован, либо его VPN-checker-кусок исключён).
-- Нет server-side check.
-- Нет remote-config флага.
-- Нет full-screen блокировки — только информер-баннер с возможностью вручную закрыть (`vpnInformerWasHidden` сохраняется в UserDefaults).
-- Нет CarPlay/Watch-интеграции.
+- No AppsFlyer detector (and `+[AppsFlyerUtils isVPNConnected]` doesn't appear in the function listing — the AppsFlyer SDK isn't integrated, or its VPN-checker piece is excluded).
+- No server-side check.
+- No remote-config flag.
+- No full-screen lockout — only an informer banner with a manual-close affordance (`vpnInformerWasHidden` persists in UserDefaults).
+- No CarPlay/Watch integration.
 
-Самая «мягкая» политика по VPN: показать информер, дать закрыть, не блокировать функционал.
+The softest VPN policy: show an informer, let the user close it, don't block functionality.
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Хук `CFNetworkCopySystemProxySettings` вырезает VPN-ключи из `__SCOPED__` → `VPNChecker.isVpnEnabled` возвращает `false` → информер не показывается, нотификация не постится.
+The `CFNetworkCopySystemProxySettings` hook strips VPN keys from `__SCOPED__` → `VPNChecker.isVpnEnabled` returns `false` → no informer, no notification.
 
-Все остальные хуки на этом бинарнике — NO-OP (либо не импортируются, либо вызываются с не-VPN типами).
+All other hooks for this binary are NO-OPs (either not imported or called with non-VPN types).
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "com.mcdonaldsru.mcd" ); }; }
 ```
 
-Bundle ID — legacy McDonald's-эпохи (`com.mcdonaldsru.mcd`), не менялся при ребрендинге в «Вкусно — и точка».
+Bundle ID is legacy from the McDonald's era (`com.mcdonaldsru.mcd`); didn't change in the rebrand to «Вкусно — и точка».
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МФ | CDEK | DNS-SHOP | ЦППК | Urent | Госуслуги | билайн | 2GIS | Мой налог | Rostic's | **В&Т** |
+| | MyMTS | MF | CDEK | DNS-SHOP | CPPK | Urent | Gosuslugi | Beeline | 2GIS | Moy Nalog | Rostic's | **V&T** |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Детекторов | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3+server | 0 | 1 | **1** |
-| AppsFlyer-style | ✅ | — | ✅ | — | ❌ | ✅ | — | ✅ | ✅ | — | ✅ | ❌ (нет AppsFlyer SDK!) |
-| Подстроки | 4 | 5 | 5–6 | 5 | — | 5 | конфиг. | unknown | 5 | — | 4 | **4** |
+| Detectors | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3+server | 0 | 1 | **1** |
+| AppsFlyer-style | ✅ | — | ✅ | — | ❌ | ✅ | — | ✅ | ✅ | — | ✅ | ❌ (no AppsFlyer SDK!) |
+| Substrings | 4 | 5 | 5–6 | 5 | — | 5 | configurable | unknown | 5 | — | 4 | **4** |
 | Server-side | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | — | ❌ | ❌ |
-| UI | snackbar | alert | RN | snackbar | alert + SwiftUI | 3 view | snackbar | toast/alert | full-screen+CarPlay | — | inline cell | **dismissable banner** |
+| UI | snackbar | alert | RN | snackbar | alert + SwiftUI | 3 views | snackbar | toast/alert | full-screen+CarPlay | — | inline cell | **dismissable banner** |
 | Sticky dismissal | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | — | ❌ | ✅ `vpnInformerWasHidden` |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | n/a | ✅ | ✅ |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | n/a | ✅ | ✅ |
 
-«В&Т» — самая мягкая политика среди приложений с детектом: один Swift-checker без AppsFlyer-дублирования, баннер можно скрыть навсегда, никакого блокирования функционала.
+V&T has the softest VPN policy among detecting apps: one Swift checker with no AppsFlyer duplicate, banner can be permanently dismissed, no functionality blocking.

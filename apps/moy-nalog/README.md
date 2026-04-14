@@ -1,27 +1,29 @@
-# Мой налог
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Мой налог (Moy Nalog — Russian Federal Tax Service app)
+
+| Field | Value |
 |---|---|
 | Display name | Мой налог |
 | Bundle ID | `com.gnivts.selfemployed` |
 | CFBundleExecutable | `selfemployed` |
-| Версия | 4.7.1 |
+| Version | 4.7.1 |
 | Min iOS | 14.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 32 MB |
+| Architectures | arm64 |
+| Binary size | 32 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Мой налог_v4.7.1-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/moy-nalog/Payload/selfemployed.app/`
-- Бинарник (для IDA): [`../../binaries/moy-nalog`](../../binaries/moy-nalog)
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/moy-nalog/Payload/selfemployed.app/selfemployed`
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) — **не детектит** |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) — **none** |
 
-## Связанные твики
+## Related tweaks
 
-- `VPNHide` — **не нужен**, приложение не проверяет VPN.
+- `VPNHide` — **not needed**, the app does not probe for VPN.

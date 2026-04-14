@@ -1,34 +1,36 @@
-# Госуслуги
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Gosuslugi (Госуслуги)
+
+| Field | Value |
 |---|---|
 | Display name | Gosuslugi |
 | Bundle ID | `com.minsvyaz.gosuslugi` |
 | CFBundleExecutable | `Gosuslugi` |
-| Версия | 25.3.0 |
+| Version | 25.3.0 |
 | Min iOS | 14.0 |
-| Архитектуры | arm64 |
-| Размер бинарника | 131 MB |
+| Architectures | arm64 |
+| Binary size | 131 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Госуслуги_v25.3.0-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Госуслуги/Payload/Gosuslugi.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Госуслуги/Payload/Gosuslugi.app/Gosuslugi`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/Госуслуги/Payload/Gosuslugi.app/Gosuslugi`
 
-## Заметки по бинарнику
+## Notes
 
-- Двойная реализация фреймворков: `GUNetwork.VPNCheckService` + самостоятельный `VPNCheckService` (с DI `VPNCheckAssembly`, `VPNCheckServiceStrings`, `VPNSnackbarMessage`).
-- `vpnProtocolsKeysIdentifiers` — список подстрок VPN-интерфейсов, **externally supplied** (remote config / plist / DI). Уникальная черта среди разобранных приложений.
-- Трёхзначная аналитика `^(vpn_on)|(vpn_off)|(vpn_unknown)$`.
-- Debug-флаг `debugDoNotShowVPNSnackbar` для разработчиков.
+- Dual-framework implementation: `GUNetwork.VPNCheckService` + a standalone `VPNCheckService` module (with DI `VPNCheckAssembly`, `VPNCheckServiceStrings`, `VPNSnackbarMessage`).
+- `vpnProtocolsKeysIdentifiers` — a list of VPN-interface substrings, **externally supplied** (remote-config / plist / DI). Unique among the analysed apps.
+- Tri-state analytics `^(vpn_on)|(vpn_off)|(vpn_unknown)$`.
+- Developer-only debug flag `debugDoNotShowVPNSnackbar`.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает все 5 детекторов (в т.ч. `CFNetworkCopyProxiesForURL` per-URL). `com.minsvyaz.gosuslugi` уже в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers all 5 detectors (incl. per-URL `CFNetworkCopyProxiesForURL`). `com.minsvyaz.gosuslugi` is already in `Filter.plist`.

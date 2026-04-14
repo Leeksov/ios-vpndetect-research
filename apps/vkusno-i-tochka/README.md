@@ -1,29 +1,31 @@
-# Вкусно — и точка
+[🇷🇺 Русская версия](README.ru.md)
 
-| Поле | Значение |
+# Вкусно — и точка (Vkusno — i Tochka, formerly McDonald's Russia)
+
+| Field | Value |
 |---|---|
 | Display name | Вкусно— и точка |
 | Bundle ID | `com.mcdonaldsru.mcd` |
 | CFBundleExecutable | `mcd-ios` |
-| Версия | 13.2.0 |
+| Version | 13.2.0 |
 | Min iOS | 15.6 |
-| Архитектуры | arm64 |
-| Размер бинарника | 54 MB |
+| Architectures | arm64 |
+| Binary size | 54 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_Вкусно — и точка_v13.2.0-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/vkusno-i-tochka/Payload/mcd-ios.app/`
-- Бинарник (для IDA): [`../../binaries/vkusno-i-tochka`](../../binaries/vkusno-i-tochka)
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/vkusno-i-tochka/Payload/mcd-ios.app/mcd-ios`
 
-Bundle ID и executable — legacy McDonald's-эпохи (`com.mcdonaldsru.mcd` / `mcd-ios`), ребренд в «Вкусно — и точка» только на уровне UI.
+Bundle ID and executable name are legacy from the McDonald's era (`com.mcdonaldsru.mcd` / `mcd-ios`) — the rebrand was UI-only.
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает В&Т (один Swift-checker, без AppsFlyer-дубля); для активации добавить `com.mcdonaldsru.mcd` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers Vkusno-i-Tochka (single Swift checker, no AppsFlyer duplicate). Add `com.mcdonaldsru.mcd` to `Filter.plist`.

@@ -1,113 +1,115 @@
-# Rostic's — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `kfc` v10.29.0 (arm64, Swift + Obj-C)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — текущий твик покрывает; добавить `ru.yum.KFC-Russia` в [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
+# Rostic's — VPN / proxy detection
+
+**Binary:** `kfc` v10.29.0 (arm64, Swift + Obj-C)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — current tweak covers it; add `ru.yum.KFC-Russia` to [`Filter.plist`](../../tweaks/VPNHide/Filter.plist).
 
 ---
 
 ## TL;DR
 
-Один реальный детектор + Swift-обёртка с UI-инфраструктурой:
+One actual detector + a Swift wrapper with UI infrastructure:
 
-| # | Модуль | Механизм | Адрес |
+| # | Module | Mechanism | Address |
 |---|---|---|---|
 | 1 | AppsFlyer SDK (Obj-C) | `+[AppsFlyerUtils isVPNConnected]` — `__SCOPED__` → `tap/tun/ipsec/ppp` | `0x1013EED10` |
 
-`KFCGeneralModule.CheckVPN` (`$s16KFCGeneralModule8CheckVPNVMa` @ `0x10047d694`) — Swift-структура (`V` в манглинге), описывающая результат проверки. Её собственный код проверки в декомпиляции не локализуется (метаданные есть, методы анонимные / inline'нутые), но **поведение однозначное**: единственный callsite `CFNetworkCopySystemProxySettings` в бинарнике — это AppsFlyer. CheckVPN либо обёрнут поверх AppsFlyer, либо принимает `Bool` извне.
+`KFCGeneralModule.CheckVPN` (`$s16KFCGeneralModule8CheckVPNVMa` @ `0x10047d694`) — Swift struct (`V` in mangling) describing the check result. Its own check code isn't localised in the decomp (metadata exists, methods are anonymous / inlined), but **the behaviour is unambiguous**: the only `CFNetworkCopySystemProxySettings` call site in the binary is AppsFlyer. CheckVPN is either a wrapper over AppsFlyer or accepts a `Bool` from outside.
 
-`NWPathMonitor` **не используется для VPN** — `sub_10018D4D0` дёргает `nw_path_uses_interface_type(path, .cellular)` единоразово и тут же `nw_path_monitor_cancel`. Reachability, не VPN.
+`NWPathMonitor` is **not used for VPN** — `sub_10018D4D0` calls `nw_path_uses_interface_type(path, .cellular)` once and immediately `nw_path_monitor_cancel`. Reachability, not VPN.
 
-**Импорты Mach-O:**
+**Mach-O imports:**
 
-| Символ | Статус | Контекст |
+| Symbol | Status | Context |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | только AppsFlyer |
-| `_nw_path_uses_interface_type` | ✅ | только cellular reachability, не VPN |
-| `_getifaddrs` | ✅ | вспомогательный |
+| `_CFNetworkCopySystemProxySettings` | ✅ | only AppsFlyer |
+| `_nw_path_uses_interface_type` | ✅ | cellular reachability only, not VPN |
+| `_getifaddrs` | ✅ | helper |
 | `_nw_interface_get_type` / `_CFNetworkCopyProxiesForURL` / `_SCDynamicStoreCopyProxies` / `_DNSServiceQueryRecord` | ❌ | — |
 
 ---
 
-## Архитектура
+## Architecture
 
 ### `KFCGeneralModule.CheckVPN` (Swift struct)
 
-| Symbol | Адрес |
+| Symbol | Address |
 |---|---|
 | Type metadata accessor | `$s16KFCGeneralModule8CheckVPNVMa` @ `0x10047d694` |
 | Static reference | data ref @ `0x103381950` (witness / global) |
 
-`V` в манглинге (`...VMa`) — это Swift value type. Используется как DTO/result-of-check.
+`V` in mangling (`...VMa`) — Swift value type. Used as a DTO / result-of-check.
 
-### UI-слой — `KFCUIModule.VPNMessageCell`
+### UI layer — `KFCUIModule.VPNMessageCell`
 
-| Symbol | Адрес |
+| Symbol | Address |
 |---|---|
 | Class | `_TtC11KFCUIModule14VPNMessageCell` @ `0x1031d9e10` |
 | Source path | `KFCUIModule/VPNMessageCell.swift` (`0x1031d9e40`) |
-| Полный путь | `/Users/developers/builds/PEJtp_Ma/0/mobile/mobile-ios/ios/kfc/Modules/KFCUIModule/Views/VPNMessageCell/VPNMessageCell.swift` |
+| Full path | `/Users/developers/builds/PEJtp_Ma/0/mobile/mobile-ios/ios/kfc/Modules/KFCUIModule/Views/VPNMessageCell/VPNMessageCell.swift` |
 | Init | `-[VPNMessageCell initWithStyle:reuseIdentifier:]` @ `0x1008fbf10` |
 | ViewModel | `$s11KFCUIModule19VPNMessageCellModelVMa` @ `0x1008fc948` |
 
-`VPNMessageCell` — это **`UITableViewCell`-subclass** (init with `style:reuseIdentifier:`), который вставляется в общий feed/menu при активном VPN. Подсказка показывается **inline** в списке, а не модально или снекбаром.
+`VPNMessageCell` is a **`UITableViewCell` subclass** (init with `style:reuseIdentifier:`) that gets inserted into the common feed/menu when VPN is active. The hint shows up **inline** in the list, not modally or as a snackbar.
 
-### Локализация
+### Localisation
 
-| Ключ | Адрес | Использование |
+| Key | Address | Use |
 |---|---|---|
-| `errors.vpn_active.title` | `0x1031cac20` | заголовок ошибки |
-| `errors.vpn_active.text` | `0x1031c9ac0` | тело ошибки |
-| `screens.menu.vpn_message` | `0x1031ca970` | сообщение в меню |
+| `errors.vpn_active.title` | `0x1031cac20` | error title |
+| `errors.vpn_active.text` | `0x1031c9ac0` | error body |
+| `screens.menu.vpn_message` | `0x1031ca970` | menu message |
 
-Все три используются через `NSLocalizedString(_:tableName:bundle:value:comment:)` в `sub_1007C738C` (`title`) и аналогичных wrapper'ах. Bundle resolver — функция `sub_1006F9054` (load-once через `swift_once`).
+All three are accessed via `NSLocalizedString(_:tableName:bundle:value:comment:)` in `sub_1007C738C` (`title`) and similar wrappers. Bundle resolver is `sub_1006F9054` (load-once via `swift_once`).
 
 ### Notification
 
-Строка `activeVPN` (`0x1033d05d3`, `0x1033d0893`) — Swift small-string, попадает в data-секции дважды → используется как `NSNotification.Name("activeVPN")` (паттерн как у ЦППК). Постится из VPN-checker'а, наблюдатели реагируют показом `VPNMessageCell` или `vpnMessage`-property.
+The string `activeVPN` (`0x1033d05d3`, `0x1033d0893`) is a Swift small-string, lands in data sections twice → used as `NSNotification.Name("activeVPN")` (same pattern as CPPK). Posted from the VPN checker; observers react by showing `VPNMessageCell` or `vpnMessage` property.
 
-### Прочие маркеры
+### Other markers
 
 - `vpnMessage` (`0x1033d0a6d`) — Swift property
-- `AppsFlyerVPNCollectionEnabled` (`0x103250a02`) — флаг в AppsFlyer SDK
-- `VPNCollectionEnabled` / `setVPNCollectionEnabled:` — Obj-C accessors AppsFlyerLib
+- `AppsFlyerVPNCollectionEnabled` (`0x103250a02`) — flag in AppsFlyer SDK
+- `VPNCollectionEnabled` / `setVPNCollectionEnabled:` — Obj-C accessors on AppsFlyerLib
 
 ---
 
-## Debug-артефакты
+## Debug artefacts
 
-GitLab CI runner-путь оставлен в бинарнике:
+GitLab CI runner path left in the binary:
 
 ```
 /Users/developers/builds/PEJtp_Ma/0/mobile/mobile-ios/ios/kfc/Modules/KFCUIModule/Views/VPNMessageCell/VPNMessageCell.swift
 ```
 
-Workspace prefix `PEJtp_Ma/0/` — стандартный GitLab Runner format. Неуникальный путь сборки.
+Workspace prefix `PEJtp_Ma/0/` is standard GitLab Runner format. Non-unique build path.
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Хук `CFNetworkCopySystemProxySettings` вырезает VPN-ключи из `__SCOPED__` → AppsFlyer-детектор возвращает `false` → цепочка дальше в `CheckVPN` / `VPNMessageCell` / `errors.vpn_active.*` не запускается. Все остальные хуки на этом бинарнике — NO-OP.
+The `CFNetworkCopySystemProxySettings` hook strips VPN keys from `__SCOPED__` → AppsFlyer detector returns `false` → the chain into `CheckVPN` / `VPNMessageCell` / `errors.vpn_active.*` doesn't fire. All other hooks for this binary are NO-OPs.
 
-Для активации добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "ru.yum.KFC-Russia" ); }; }
 ```
 
-Bundle ID — legacy KFC-эпохи (до ребрендинга в Rostic's), не менялся.
+The bundle ID is legacy from the KFC era (pre-Rostic's rebrand); never changed.
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МФ | CDEK | DNS-SHOP | ЦППК | Urent | Госуслуги | билайн | 2GIS | Мой налог | **Rostic's** |
+| | MyMTS | MF | CDEK | DNS-SHOP | CPPK | Urent | Gosuslugi | Beeline | 2GIS | Moy Nalog | **Rostic's** |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Локальных детекторов | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3 | 0 | **1** (AppsFlyer-only) |
+| Local detectors | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | 3 | 0 | **1** (AppsFlyer-only) |
 | Server-side | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | — | ❌ |
-| UI-реакция | снекбар | алерт | RN | снекбар | alert + SwiftUI | 3 view'ки | snackbar | toast/alert | full-screen + CarPlay | — | **inline `UITableViewCell`** |
+| UI reaction | snackbar | alert | RN | snackbar | alert + SwiftUI | 3 views | snackbar | toast/alert | full-screen + CarPlay | — | **inline `UITableViewCell`** |
 | Notification-driven (`activeVPN`) | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | — | ✅ |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | n/a | ✅ |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | n/a | ✅ |
 
-Rostic's — наименее агрессивный из приложений с детектом: только стандартный AppsFlyer-шим + UX-warning через cell в общем feed'е (без блокировки, без модалок). Команда явно отнеслась к VPN как к неудобству, а не угрозе — детект есть «для галочки» и UI-подсказки.
+Rostic's is the least aggressive of the apps that detect: just a stock AppsFlyer shim + a UX warning via a cell in the main feed (no blocking, no modals). The team clearly treated VPN as an inconvenience rather than a threat — detection is "for the books" plus a UI hint.

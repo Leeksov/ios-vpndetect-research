@@ -1,78 +1,80 @@
-# 2GIS — детектирование VPN / Proxy
+[🇷🇺 Русская версия](vpn-detection.ru.md)
 
-**Бинарник:** `ru.doublegis.grymmobile` v7.21.7 (arm64, Swift + Obj-C, ~183 MB)
-**Способ анализа:** IDA Pro / Hex-Rays.
-**Обход:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — локальные детекторы закрываются существующими хуками; server-side блокировка обходится **косвенно** (если локальный сканер не нашёл VPN → HTTP-запрос к `/v1/vpn-detection-free` не инициируется).
+# 2GIS — VPN / proxy detection
+
+**Binary:** `ru.doublegis.grymmobile` v7.21.7 (arm64, Swift + Obj-C, ~183 MB)
+**Method:** IDA Pro / Hex-Rays.
+**Bypass:** [`tweaks/VPNHide`](../../tweaks/VPNHide/) — local detectors are covered by existing hooks; server-side block is bypassed **indirectly** (if the local scanner doesn't find VPN → no HTTP request to `/v1/vpn-detection-free` is initiated).
 
 ---
 
 ## TL;DR
 
-Наиболее развитый VPN-стек из 8 разобранных приложений. Реализован как набор **отдельных фреймворков** с чёткой DI-архитектурой:
+The most elaborate VPN stack of all 8 analysed apps. Implemented as a set of **dedicated frameworks** with clear DI architecture:
 
-| Framework | Что делает |
+| Framework | Role |
 |---|---|
-| `VNVPNCheckerAPI` | основная логика: `VPNCheckerAPI`, `VPNStatusProvider`, `VPNDiagnosticsService`, `VPNRemoteConfig`, `DGIDHeadersProvider`, `GeoContextProvider` |
-| `VNVPNCheckerAPIInterfaces` | протоколы: `IVPNCheckerAPI`, `IVPNDiagnosticsService`, `IVPNRemoteConfig`, `IVPNStatusProvider`, `IGeoContextProvider` |
+| `VNVPNCheckerAPI` | core logic: `VPNCheckerAPI`, `VPNStatusProvider`, `VPNDiagnosticsService`, `VPNRemoteConfig`, `DGIDHeadersProvider`, `GeoContextProvider` |
+| `VNVPNCheckerAPIInterfaces` | protocols: `IVPNCheckerAPI`, `IVPNDiagnosticsService`, `IVPNRemoteConfig`, `IVPNStatusProvider`, `IGeoContextProvider` |
 | `VNVPNCheckerUI` | UI: `VPNAlertPresenter`, `VPNAlertVC`, `VPNAlertVM`, `VPNBlockedWindow` |
 | `VNCarPlay` | CarPlay full-screen block overlay (`CarPlayVPNBlockOverlayVC`) |
 
-Трёхслойная детекция:
+Three-layered detection:
 
-| Слой | Механизм | Адрес |
+| Layer | Mechanism | Address |
 |---|---|---|
-| AppsFlyer-style | `+[AppsFlyerUtils isVPNConnected]` — `__SCOPED__` → `rangeOfString:` по `tap/tun/ipsec/ppp` | `0x107199AAC` |
-| FPNetworkInfoProvider (Obj-C) | `-[FPNetworkInfoProvider isVpnOn]` — тот же алгоритм, прямо в приложении | `0x107653440` |
-| **ProxySettingsScanner** (Swift) | `sub_106447010` — `__SCOPED__` → `String.hasPrefix` по `utun/tap/tun/ipsec/ppp`, возвращает массив обнаруженных интерфейсов | `0x106447010` |
-| **NWPathMonitor (`VPNStatusProvider`)** | реактивно ловит изменения сети, триггерит check | в libswiftNetwork overlay |
-| **Server-side** | `GET /v1/vpn-detection-free` через `VPNCheckerAPI`; HTTP 451 = VPN detected, HTTP 200/empty = OK | `VNVPNCheckerAPI/VPNCheckerAPI.swift` |
+| AppsFlyer-style | `+[AppsFlyerUtils isVPNConnected]` — `__SCOPED__` → `rangeOfString:` for `tap/tun/ipsec/ppp` | `0x107199AAC` |
+| FPNetworkInfoProvider (Obj-C) | `-[FPNetworkInfoProvider isVpnOn]` — same algorithm, directly in the app | `0x107653440` |
+| **ProxySettingsScanner** (Swift) | `sub_106447010` — `__SCOPED__` → `String.hasPrefix` for `utun/tap/tun/ipsec/ppp`, returns the array of detected interfaces | `0x106447010` |
+| **NWPathMonitor (`VPNStatusProvider`)** | reactively catches network changes, triggers the check | in libswiftNetwork overlay |
+| **Server-side** | `GET /v1/vpn-detection-free` via `VPNCheckerAPI`; HTTP 451 = VPN detected, HTTP 200/empty = OK | `VNVPNCheckerAPI/VPNCheckerAPI.swift` |
 
 ---
 
 ## Server-side check — `VPNCheckerAPI`
 
-Единственное приложение из разобранных, где **сервер** принимает решение о VPN по IP клиента.
+The only analysed app where **the server** decides about VPN by client IP.
 
 ```
 GET {vpnCheckerServerUrl}/v1/vpn-detection-free
 Headers: {vpnHeaderKey}: ...
 ```
 
-Конфигурация вынесена в remote-config:
-- `vpnCheckerServerUrl` (`0x10812a000`) — основной endpoint
+Configuration is in remote-config:
+- `vpnCheckerServerUrl` (`0x10812a000`) — main endpoint
 - `vpnCheckerFallbackServerUrl` (`0x10812a020`) — fallback
-- `vpnHeaderKey` (`0x10812a03c`) — имя кастомного header'а
+- `vpnHeaderKey` (`0x10812a03c`) — name of the custom header
 
-Ответы (из логов в бинарнике):
+Responses (from logs in the binary):
 
-| Поведение | Лог |
+| Behaviour | Log |
 |---|---|
 | HTTP 451 Legal Reasons | `VPNCheckerAPI: результат — заблокирован (HTTP 451) — …` (`0x1084b8ce0`) — VPN detected |
 | HTTP 200 | `VPNCheckerAPI: результат — не заблокирован (HTTP 200)` (`0x1084b8d90`) — OK |
-| пустой ответ | `VPNCheckerAPI: результат — не заблокирован (пустой ответ)` (`0x1084b8d30`) — OK |
-| ошибка + retry | `VPNCheckerAPI: первый запрос завершился с ошибкой, запускаем повторные попытки` (`0x1084b8b10`) |
-| исчерпаны попытки | `VPNCheckerAPI: все повторные попытки исчерпаны` (`0x1084b8c40`) |
+| empty response | `VPNCheckerAPI: результат — не заблокирован (пустой ответ)` (`0x1084b8d30`) — OK |
+| error + retry | `VPNCheckerAPI: первый запрос завершился с ошибкой, запускаем повторные попытки` (`0x1084b8b10`) |
+| retries exhausted | `VPNCheckerAPI: все повторные попытки исчерпаны` (`0x1084b8c40`) |
 
 ---
 
-## `VPNStatusProvider` — реактивный триггер
+## `VPNStatusProvider` — reactive trigger
 
-Swift-класс `_TtC15VNVPNCheckerAPI17VPNStatusProvider` (`0x1084b90b0`). Подписан на `NWPathMonitor`:
+Swift class `_TtC15VNVPNCheckerAPI17VPNStatusProvider` (`0x1084b90b0`). Subscribes to `NWPathMonitor`:
 
 - `VPNStatusProvider: мониторинг сети запущен` (`0x1084b9110`)
 - `VPNStatusProvider: сетевой путь изменился` (`0x1084b9150`)
-- `VPNStatusProvider: определение VPN отключено через remote config` (`0x1084b9050`) — kill switch на сервере
+- `VPNStatusProvider: определение VPN отключено через remote config` (`0x1084b9050`) — server-side kill switch
 - `VPNStatusProvider: мониторинг сети остановлен` (`0x1084b8fd0`)
 
-Использует `_vpnRemoteConfig` (`0x1084b8ad0`) и сервис в очереди `ru.doublegis.grymmobile.vpn-status-provider` (`0x1084b8e10`).
+Uses `_vpnRemoteConfig` (`0x1084b8ad0`) and a service queue `ru.doublegis.grymmobile.vpn-status-provider` (`0x1084b8e10`).
 
-Бинарник **не импортирует** `nw_path_uses_interface_type` напрямую — все вызовы идут через Swift overlay (`libswiftNetwork.dylib`).
+The binary **does not import** `nw_path_uses_interface_type` directly — all calls go through the Swift overlay (`libswiftNetwork.dylib`).
 
 ---
 
-## Локальный scanner — `sub_106447010`
+## Local scanner — `sub_106447010`
 
-Заметно отличается от прочих приложений — это **не** bool-detector, а функция, **возвращающая массив** найденных VPN-интерфейсов, чтобы потом уйти с ним в `VPNCheckerAPI` как контекст.
+Notably different from other apps — this is **not** a bool detector, but a function **returning the array** of found VPN interfaces, to be passed into `VPNCheckerAPI` as context.
 
 ```swift
 func scanProxySettings() -> [String] {
@@ -83,7 +85,7 @@ func scanProxySettings() -> [String] {
         let lower = iface.lowercased()
         if lower.hasPrefix("utun") || lower.hasPrefix("tap") || lower.hasPrefix("tun")
            || lower.hasPrefix("ipsec") || lower.hasPrefix("ppp") {
-            // поднимает из sub-dict <iface_info> ключ "P2P"-like (readback)
+            // reads a "P2P"-like flag from sub-dict <iface_info>
             if let extra = info[<key>] as? Bool, extra {
                 found.append(iface)
             }
@@ -93,92 +95,92 @@ func scanProxySettings() -> [String] {
 }
 ```
 
-### Особенности
+### Notable details
 
-1. **`String.hasPrefix`**, не `contains` — строже, чем у большинства (нельзя спрятать VPN в суффиксе).
-2. **`lowercased()`** перед матчингом — регистронезависимо.
-3. Читает **доп-флаг** из sub-dict `__SCOPED__[iface]` (ключ `5255760` + flag `0xE3` — 3-char строка `"P2P"` или аналогичный маркер `kSCDynamicStoreSetupGlobal*`).
+1. **`String.hasPrefix`** rather than `contains` — stricter than most (you can't hide a VPN in the suffix).
+2. **`lowercased()`** before matching — case-insensitive.
+3. Reads an **extra flag** from sub-dict `__SCOPED__[iface]` (key `5255760` + flag `0xE3` — 3-char string `"P2P"` or a similar marker like `kSCDynamicStoreSetupGlobal*`).
 
-Из-за всех трёх отличий наш хук, который **удаляет** VPN-ключи из `__SCOPED__`, здесь всё равно работает — сканер получит пустой dict → пустой массив → VPN не детектирован.
+Despite all three differences our hook, which **removes** VPN keys from `__SCOPED__`, still works here — the scanner gets an empty dict → empty array → no VPN detected.
 
 ---
 
-## UI-реакция
+## UI reaction
 
-2GIS — **единственное приложение**, которое блокирует весь интерфейс на отдельное окно:
+2GIS is the **only app** that locks the entire UI behind a separate window:
 
-| Класс | Адрес | Что делает |
+| Class | Address | Role |
 |---|---|---|
-| `_TtC14VNVPNCheckerUI17VPNAlertPresenter` | `0x1084b92c0` | создаёт UIWindow поверх, показывает алерт |
-| `_TtC14VNVPNCheckerUI10VPNAlertVC` | `0x1084b9320` | View controller алерта |
-| `_TtC14VNVPNCheckerUI10VPNAlertVM` | `0x1084b94a0` | ViewModel |
-| `_TtC14VNVPNCheckerUI16VPNBlockedWindow` | `0x1084b9510` | отдельный `UIWindow` для блока |
+| `_TtC14VNVPNCheckerUI17VPNAlertPresenter` | `0x1084b92c0` | creates a UIWindow on top, presents the alert |
+| `_TtC14VNVPNCheckerUI10VPNAlertVC` | `0x1084b9320` | alert view controller |
+| `_TtC14VNVPNCheckerUI10VPNAlertVM` | `0x1084b94a0` | view model |
+| `_TtC14VNVPNCheckerUI16VPNBlockedWindow` | `0x1084b9510` | dedicated `UIWindow` for the block |
 
-Строки локализации: `vpnAlert.message` (`0x1084b91f0`), `vpnAlert.refreshButton` (`0x1084b9230`).
+Localisation strings: `vpnAlert.message` (`0x1084b91f0`), `vpnAlert.refreshButton` (`0x1084b9230`).
 
 ### CarPlay
 
-Отдельный путь для CarPlay-режима:
+A separate path for CarPlay mode:
 
-| Класс/строка | Адрес | Что делает |
+| Class / string | Address | Role |
 |---|---|---|
-| `_TtC9VNCarPlay24CarPlayVPNBlockOverlayVC` | `0x108333040` | full-screen overlay в CarPlay |
-| `tripToRestoreAfterVPNUnblock` | `0x108331e80` | сохраняет текущий маршрут |
-| `routePointsToRestoreAfterVPNUnblock` | `0x108331ea0` | сохраняет точки маршрута |
-| `[CarPlay] VPN detected, showing block screen` | `0x1083cf0d0` | лог детекта в CarPlay |
-| `[CarPlay] VPN unblocked, restoring CarPlay` | `0x1083cf450` | восстановление после разблокировки |
+| `_TtC9VNCarPlay24CarPlayVPNBlockOverlayVC` | `0x108333040` | full-screen overlay in CarPlay |
+| `tripToRestoreAfterVPNUnblock` | `0x108331e80` | saves the current trip |
+| `routePointsToRestoreAfterVPNUnblock` | `0x108331ea0` | saves the route points |
+| `[CarPlay] VPN detected, showing block screen` | `0x1083cf0d0` | log of CarPlay detect |
+| `[CarPlay] VPN unblocked, restoring CarPlay` | `0x1083cf450` | restoration after unblock |
 | `carPlayAppVPNBlockViewController` | `0x1083cef50` | property |
 | `dashboardVPNBlockViewController` | `0x1083cef80` | property |
-| `carplay.vpn block.retry button` / `carplay.vpn block.message` | `0x1083352d0`, `0x108335560` | локализация |
+| `carplay.vpn block.retry button` / `carplay.vpn block.message` | `0x1083352d0`, `0x108335560` | localisation |
 
-То есть при обнаружении VPN в CarPlay — приложение **сохраняет состояние навигации, блокирует экран, а после «разблокировки» восстанавливает маршрут**. Это уникальное поведение среди разобранных.
+So when VPN is detected in CarPlay — the app **saves navigation state, blocks the screen, then on "unblock" restores the route**. Unique behaviour among the analysed apps.
 
 ---
 
-## Debug-артефакты
+## Debug artefacts
 
 - `/Users/user/jenkins/agent/workspace/release-v4ios/v4ios-upload-to-testflight/v4ios/Src/CarPlay/Src/UI/CarPlayVPNBlockOverlayVC.swift` (`0x108333090`)
 - `/Users/user/jenkins/agent/workspace/release-v4ios/v4ios-upload-to-testflight/v4ios/Src/VPNCheckerAPI/UI/VPNAlertVC.swift` (`0x1084b9420`)
 - `VNVPNCheckerAPI/VPNCheckerAPI.swift` (`0x1084b8ba0`), `VPNStatusProvider.swift` (`0x1084b9020`), `VPNBlockedWindow.swift` (`0x1084b9580`), `VPNAlertPresenter.swift` (`0x1084b9290`), `VpnConnection` (`0x1084d7ae6`)
 
-Jenkins CI-путь и full source-file paths слиты в релизный бинарь — `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` + не вырезанные debug-символы.
+Jenkins CI path and full source-file paths leaked into the release binary — `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` + non-stripped debug symbols.
 
 ---
 
-## Импорты
+## Imports
 
-| Символ | Статус | Контекст |
+| Symbol | Status | Context |
 |---|---|---|
-| `_CFNetworkCopySystemProxySettings` | ✅ | 3 детектора |
-| `_nw_path_uses_interface_type` | ❌ | не импортируется напрямую |
-| `_nw_interface_get_type` | ❌ | не импортируется |
-| `_CFNetworkCopyProxiesForURL` | ❌ | не импортируется |
-| `_getifaddrs` | ✅ | только для IP-адреса в `FPNetworkInfoProvider` |
-| `_sysctl`/`_getenv`/`_dlopen`/`_dlsym`/`_if_nametoindex` | ✅ | не VPN |
+| `_CFNetworkCopySystemProxySettings` | ✅ | 3 detectors |
+| `_nw_path_uses_interface_type` | ❌ | not imported directly |
+| `_nw_interface_get_type` | ❌ | not imported |
+| `_CFNetworkCopyProxiesForURL` | ❌ | not imported |
+| `_getifaddrs` | ✅ | only for the IP address in `FPNetworkInfoProvider` |
+| `_sysctl`/`_getenv`/`_dlopen`/`_dlsym`/`_if_nametoindex` | ✅ | not VPN |
 | `_SCDynamicStoreCopyProxies`/`_DNSServiceQueryRecord` | ❌ | — |
 
 ---
 
-## Обход существующим `VPNHide`-твиком
+## Bypass via the existing `VPNHide` tweak
 
-Текущие хуки дают многослойное покрытие:
+Current hooks provide multi-layered coverage:
 
-| Хук | Эффект на 2GIS |
+| Hook | Effect on 2GIS |
 |---|---|
-| `CFNetworkCopySystemProxySettings` | Удаляет VPN-ключи из `__SCOPED__` → детекторы AppsFlyer + FPNetworkInfoProvider + ProxySettingsScanner получают пустые массивы → all `false`. |
-| `nw_interface_get_type` | Если libswiftNetwork использует его для `NWInterface.type` → `VPNStatusProvider` никогда не увидит `.other` → мониторинг не триггерит server-check. |
-| `nw_path_uses_interface_type` | Аналогично, если overlay ходит через эту функцию. |
-| `CFNetworkCopyProxiesForURL` / `getifaddrs` | NO-OP (не импортируется / не для VPN). |
+| `CFNetworkCopySystemProxySettings` | Strips VPN keys from `__SCOPED__` → AppsFlyer + FPNetworkInfoProvider + ProxySettingsScanner detectors all get empty arrays → all `false`. |
+| `nw_interface_get_type` | If libswiftNetwork uses it for `NWInterface.type` → `VPNStatusProvider` never sees `.other` → monitoring doesn't trigger the server-check. |
+| `nw_path_uses_interface_type` | Likewise, if the overlay goes through this function. |
+| `CFNetworkCopyProxiesForURL` / `getifaddrs` | NO-OP (not imported / not for VPN). |
 
-**Server-side check** (`/v1/vpn-detection-free`) — **не обходится напрямую**. Он не сработает, только если **не был инициирован** локальным scan/pathmonitor. Т.к. всё локальное мы глушим, никто не дёрнет `VPNCheckerAPI.checkBlocked()`.
+**Server-side check** (`/v1/vpn-detection-free`) — **not bypassed directly**. It won't fire only if it's **not initiated** by local scan/pathmonitor. Since we silence everything local, no one calls `VPNCheckerAPI.checkBlocked()`.
 
-⚠️ **Исключения**:
-- Если где-то в коде есть **периодический timer**, независимый от локальных сигналов — он будет бить в `/v1/vpn-detection-free` по расписанию. Сервер вернёт 451 если IP принадлежит VPN-пулу — UI заблокируется.
-- **Fallback URL** + remote-config позволяют MyDGS менять endpoint на лету.
+⚠️ **Exceptions**:
+- If somewhere there's a **periodic timer** independent of local signals — it'll hit `/v1/vpn-detection-free` on schedule. The server returns 451 if the IP is in a VPN pool — UI will lock.
+- **Fallback URL** + remote-config let MyDGS change the endpoint on the fly.
 
-Для гарантии — добавить в твик ещё один хук: подменять ответ `/v1/vpn-detection-free` на пустой (через swizzle `NSURLSessionDataTask` / `URLSession.dataTask(with:)` на совпадение URL).
+For full guarantee — add another hook to the tweak: substitute the `/v1/vpn-detection-free` response with empty (via swizzle of `NSURLSessionDataTask` / `URLSession.dataTask(with:)` filtered by URL).
 
-Для активации текущего твика добавить в [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
+To activate the current tweak, add to [`tweaks/VPNHide/Filter.plist`](../../tweaks/VPNHide/Filter.plist):
 
 ```
 { Filter = { Bundles = ( …, "ru.doublegis.grymmobile" ); }; }
@@ -186,19 +188,19 @@ Jenkins CI-путь и full source-file paths слиты в релизный б�
 
 ---
 
-## Сравнение
+## Comparison
 
-| | MyMTS | МФ | CDEK | DNS-SHOP | ЦППК | Urent | Госуслуги | билайн | **2GIS** |
+| | MyMTS | MF | CDEK | DNS-SHOP | CPPK | Urent | Gosuslugi | Beeline | **2GIS** |
 |---|---|---|---|---|---|---|---|---|---|
-| Локальных детекторов | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | **3** |
+| Local detectors | 2 | 1 | 2 | 1 | 1 | 3 | 5 | 2 | **3** |
 | Server-side detection | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ **HTTP 451** |
 | Full-screen block window | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | CarPlay integration | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | State preservation (trip restore) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Remote-config на детектор | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| `String.hasPrefix` (не `contains`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Retry с fallback-URL | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| DI-архитектура (protocol + impl) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Покрытие VPNHide | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (локал.) + ⚠️ server |
+| Remote-config on the detector | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `String.hasPrefix` (not `contains`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Retry with fallback URL | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| DI architecture (protocol + impl) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| VPNHide coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (local) + ⚠️ server |
 
-2GIS — чемпион по комплексности. Всё, что у других апп минимум одно-двухслойно, тут делается на 3 уровнях (local proxy + NWPath + server) с full-screen UI-блоком и отдельным CarPlay-слоем. Команда, которая это писала, явно относилась к VPN-детекту как к serious anti-cheat'у в производственной игре.
+2GIS is the complexity champion. Everything that other apps do at one or two layers is here on three (local proxy + NWPath + server) with a full-screen UI block and a dedicated CarPlay layer. The team that wrote this clearly treated VPN detection as serious anti-cheat in a production game.

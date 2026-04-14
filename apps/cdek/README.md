@@ -1,33 +1,35 @@
+[🇷🇺 Русская версия](README.ru.md)
+
 # CDEK
 
-| Поле | Значение |
+| Field | Value |
 |---|---|
 | Display name | CDEK |
 | Bundle ID | `com.cdek.cdekapp` |
 | CFBundleExecutable | `CDEK` |
-| Версия | 5.9.0 |
+| Version | 5.9.0 |
 | Min iOS | 15.1 |
-| Архитектуры | arm64 |
-| Размер бинарника | 17 MB |
+| Architectures | arm64 |
+| Binary size | 17 MB |
 
-## Пути
+## Paths
 
 - IPA: `/Users/leeksov/Downloads/AyuGram Desktop/_CDEK_v5.9.0-AppAssassin.ipa`
 - .app: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/CDEK/Payload/CDEK.app/`
-- Бинарник: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/CDEK/Payload/CDEK.app/CDEK`
+- Binary: `/Users/leeksov/Downloads/AyuGram Desktop/_extracted/CDEK/Payload/CDEK.app/CDEK`
 
-## Заметки по бинарнику
+## Notes
 
-- React Native приложение (reanimated, margelo/nitro, worklets, RNSVG).
-- Нативная сторона — Swift + Obj-C (AppsFlyer SDK, Sentry, Mindbox, Firebase GoogleUtilities).
-- VPN-детект реализован как native-модуль RN: CocoaPods-пакет `VpnDetect` (`_TtC9VpnDetect15VpnDetectModule`, JS-API `isVpnConnected`).
+- React Native app (reanimated, margelo/nitro, worklets, RNSVG).
+- Native side — Swift + Obj-C (AppsFlyer SDK, Sentry, Mindbox, Firebase GoogleUtilities).
+- VPN detection implemented as an RN native module: CocoaPods package `VpnDetect` (`_TtC9VpnDetect15VpnDetectModule`, JS API `isVpnConnected`).
 
-## Разобранные темы
+## Topics analysed
 
-| Тема | Файл |
+| Topic | File |
 |---|---|
-| Детектирование VPN / Proxy | [vpn-detection.md](vpn-detection.md) |
+| VPN / Proxy detection | [vpn-detection.md](vpn-detection.md) |
 
-## Связанные твики
+## Related tweaks
 
-- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — покрывает CDEK-овский детект; для активации добавить `com.cdek.cdekapp` в `Filter.plist`.
+- [`tweaks/VPNHide/`](../../tweaks/VPNHide/) — covers CDEK detection. Add `com.cdek.cdekapp` to `Filter.plist`.
