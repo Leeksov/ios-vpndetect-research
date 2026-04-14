@@ -1,12 +1,15 @@
 # ios-vpndetect-research
 
-Reverse-engineering of client-side VPN / proxy detection in iOS apps, + a universal fishhook-based bypass tweak. 16 Russian market apps analysed (banking, streaming, delivery, gov, telco, navigation).
+[🇷🇺 Русская версия](README.ru.md)
+
+Reverse engineering of client-side VPN / proxy detection in iOS apps, plus a universal fishhook-based bypass tweak. 16 Russian-market apps analysed (banking, streaming, delivery, gov, telco, navigation).
 
 - Per-app reverse-engineering notes → [`apps/`](apps/)
 - Theos tweak (VPNHide) → [`tweaks/VPNHide/`](tweaks/VPNHide/)
-- **Binaries / IPAs are NOT shipped** in this repo (copyright + ~4 GB). Instructions to obtain them — ниже.
+- Prebuilt `.deb` packages → [Releases](../../releases) (rootful + rootless variants)
+- **Binaries / IPAs are NOT shipped** in this repo (copyright + ~4 GB). See [Reproducing the analysis](#reproducing-the-analysis).
 
-## Приложения
+## Apps analysed
 
 | App | Bundle ID | Executable | Version | Notes | VPN detect |
 |---|---|---|---|---|---|
@@ -23,54 +26,79 @@ Reverse-engineering of client-side VPN / proxy detection in iOS apps, + a univer
 | Яндекс Еда | `com.appkode.foodfox` | `YandexEats` | 8.102.1 | [`apps/yandex-eats/`](apps/yandex-eats/) | [📄](apps/yandex-eats/vpn-detection.md) |
 | Кинопоиск | `ru.kinopoisk` | `Kinopoisk` | 8.41.3 | [`apps/kinopoisk/`](apps/kinopoisk/) | [📄](apps/kinopoisk/vpn-detection.md) |
 | Amediateka | `com.spbtv.ag.tv.Amedia` | `Amediateka` | 4.54.0 | [`apps/amediateka/`](apps/amediateka/) | [📄](apps/amediateka/vpn-detection.md) |
-| Мой налог | `com.gnivts.selfemployed` | `selfemployed` | 4.7.1 | [`apps/moy-nalog/`](apps/moy-nalog/) | [📄](apps/moy-nalog/vpn-detection.md) (none) |
+| Мой налог | `com.gnivts.selfemployed` | `selfemployed` | 4.7.1 | [`apps/moy-nalog/`](apps/moy-nalog/) | [📄 none](apps/moy-nalog/vpn-detection.md) |
 | Rostic's | `ru.yum.KFC-Russia` | `kfc` | 10.29.0 | [`apps/rostics/`](apps/rostics/) | [📄](apps/rostics/vpn-detection.md) |
 | Вкусно — и точка | `com.mcdonaldsru.mcd` | `mcd-ios` | 13.2.0 | [`apps/vkusno-i-tochka/`](apps/vkusno-i-tochka/) | [📄](apps/vkusno-i-tochka/vpn-detection.md) |
 
 All binaries are arm64 single-slice (no arm64e).
 
-## Ключевые выводы (cross-app)
+> Per-app analysis files (`apps/*/vpn-detection.md`) are written in Russian. If you need a specific one in English — open an issue.
 
-- **12 из 16** приложений проверяют `CFNetworkCopySystemProxySettings.__SCOPED__` → substring match по `utun/tun/tap/ipsec/ppp`. Это «классика» — fishhook закрывает за 5 минут.
-- **3 приложения** используют **server-side** детект (2GIS `/v1/vpn-detection-free` → 451, Amediateka `ShortApiError403Vpn`, Кинопоиск `/tmgrdfrend/checkvpn`). Клиентский bypass не помогает, нужен mitmproxy или residential IP.
-- **2 приложения** используют **remote-configurable** список VPN-паттернов через `vpnProtocolsKeysIdentifiers` / `vpnProtocols` — теоретически бекенд может выкатить новые паттерны без релиза.
-- **Shared SDK-переиспользование**: `MobileAdsCore.MACVpnStatusCheckerImpl` (SPB TV — Amediateka + Кинопоиск), Yandex AppLib `YAL*` (Маркет + Кинопоиск + Еда), `YXFintechFoundation.VPNConnectionCheckerImpl` (Еда + вероятно Маркет/Такси/Доставка).
-- **Мой налог** (ФНС) — **не детектит VPN вообще**. Уникально для госприложения.
-- MyMTS → **единственное** приложение в выборке, где детект идёт через `NWPathMonitor.usesInterfaceType(.other)` — а эта C-функция живёт в `libswiftNetwork.dylib` внутри dyld_shared_cache, **fishhook её не достанет**. Нужен MSHookFunction (jailbreak required).
+## Cross-app findings
 
-Для сравнительной таблицы детекторов и реакций UI — см. секцию «Сравнение» в любом `apps/*/vpn-detection.md`.
+- **12 out of 16** apps rely on `CFNetworkCopySystemProxySettings.__SCOPED__` substring-matching against `utun / tun / tap / ipsec / ppp`. This is the "classic" pattern — fishhook neutralises it in a few lines.
+- **3 apps** do **server-side** detection (2GIS `/v1/vpn-detection-free` → HTTP 451, Amediateka `ShortApiError403Vpn`, Kinopoisk `/tmgrdfrend/checkvpn`). Client-side bypass doesn't help; you need mitmproxy for response rewriting or a residential exit IP.
+- **2 apps** use a **remote-configurable** VPN-pattern list via `vpnProtocolsKeysIdentifiers` / `vpnProtocols` — the backend can push new needles without releasing an update.
+- **Shared-SDK reuse across apps**: `MobileAdsCore.MACVpnStatusCheckerImpl` (SPB TV — Amediateka + Kinopoisk), Yandex AppLib `YAL*` (Yandex Market + Kinopoisk + Yandex Eats), `YXFintechFoundation.VPNConnectionCheckerImpl` (Yandex Eats and likely Market / Taxi / Delivery).
+- **Мой налог** (Russian Federal Tax Service app) — **does not detect VPN at all**. Unique for a government app.
+- **MyMTS** is the only app where detection flows through Swift `NWPathMonitor.usesInterfaceType(.other)`. The underlying C function lives in `libswiftNetwork.dylib` inside dyld_shared_cache — **fishhook can't reach it**. Requires `MSHookFunction` (jailbreak).
 
-## Твик — VPNHide
+For a side-by-side comparison of detectors and UI reactions, see the "Сравнение" section at the bottom of any `apps/*/vpn-detection.md`.
 
-[`tweaks/VPNHide/`](tweaks/VPNHide/) — Theos-твик. Гибрид fishhook + MSHookFunction:
+## The tweak — VPNHide
 
-- **fishhook** перепривязывает main-app GOT для: `CFNetworkCopySystemProxySettings`, `CFNetworkCopyProxiesForURL`, `getifaddrs`, `sysctl`, `sysctlbyname`, `if_nameindex`.
-- **MSHookFunction** патчит реальные прологи shared-cache символов: `nw_path_uses_interface_type`, `nw_interface_get_type`, `nw_interface_get_name`, `nw_path_enumerate_interfaces`. Нужен jailbreak (Substrate / ElleKit).
+[`tweaks/VPNHide/`](tweaks/VPNHide/) — Theos tweak. Hybrid of fishhook + MSHookFunction:
 
-Фильтр бандлов — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (15 bundle ID на текущий момент).
+- **fishhook** rebinds main-app GOT for: `CFNetworkCopySystemProxySettings`, `CFNetworkCopyProxiesForURL`, `getifaddrs`, `sysctl`, `sysctlbyname`, `if_nameindex`.
+- **MSHookFunction** patches actual prologues of shared-cache symbols: `nw_path_uses_interface_type`, `nw_interface_get_type`, `nw_interface_get_name`, `nw_path_enumerate_interfaces`. Requires a jailbreak (Substrate or ElleKit).
 
-## Как работать с репо
+Bundle filter — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (15 bundle IDs at the moment).
 
-Распакованные бинарники / IDA-базы в репе **отсутствуют**. Чтобы воспроизвести анализ:
+### Install
 
-1. Достать IPA нужного приложения (с устройства или через ipatool/appfigures/AppAssassin/etc — на свой вкус).
+Get a `.deb` from [Releases](../../releases) that matches your jailbreak:
+
+- `..._rootful.deb` — classic jailbreaks (unc0ver, checkra1n)
+- `..._rootless.deb` — rootless (Dopamine, palera1n rootless)
+
+Sideload via Sileo / Zebra / Filza, respring.
+
+Logs: Console.app on the device, filter by `VPNHide`.
+
+### Build from source
+
+```sh
+git clone https://github.com/Leeksov/ios-vpndetect-research.git
+cd ios-vpndetect-research/tweaks/VPNHide
+# fishhook/ must contain facebook/fishhook (fishhook.c, fishhook.h)
+make clean package FINALPACKAGE=1                                # rootful
+make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless  # rootless
+```
+
+Requires Theos (`$THEOS` env var) and a jailbroken device (not strictly required for rootful `.deb` build, but Substrate libs only exist on jailbroken devices at runtime).
+
+## Reproducing the analysis
+
+Extracted binaries and IDA databases are **not** shipped. To reproduce:
+
+1. Obtain an IPA of the target app (from the device, or via ipatool / App-Assassin / similar — pick your tool).
 2. `unzip <app>.ipa -d extracted/`
-3. Бинарник → `extracted/Payload/<Name>.app/<CFBundleExecutable>`.
-4. Открыть в IDA / Ghidra / Hopper — все адреса в `apps/<app>/vpn-detection.md` валидны **только для версии, указанной в заголовке доки**.
+3. Binary lives at `extracted/Payload/<Name>.app/<CFBundleExecutable>`.
+4. Load into IDA / Ghidra / Hopper. Addresses in `apps/<app>/vpn-detection.md` are **valid only for the version listed in the file header**.
 
-## Структура
+## Repo layout
 
 ```
 apps/<slug>/
 ├── README.md          # bundle ID, executable, version, framework stack
-└── vpn-detection.md   # VPN/proxy-детект в деталях + как обходится
+└── vpn-detection.md   # detailed VPN/proxy detection analysis + bypass notes
 
 tweaks/<name>/
-├── Tweak.mm           # исходник
+├── Tweak.mm           # source
 ├── Makefile, control, Filter.plist, README.md
-└── fishhook/          # git submodule (facebook/fishhook), не в репе
+└── fishhook/          # facebook/fishhook — fetched manually, not committed
 ```
 
-## Лицензия / этика
+## Licence / ethics
 
-Reverse engineering notes публикуются как research / educational material. Бинарники приложений защищены авторским правом их владельцев и **не распространяются** через этот репозиторий. Tweak VPNHide — bypass клиентских проверок, что у некоторых приложений идёт вразрез с их ToS. Использование на свой страх.
+The reverse-engineering notes are published as research / educational material. Application binaries are the copyright of their respective owners and are **not distributed** through this repository. The VPNHide tweak bypasses client-side checks which for some apps may violate their Terms of Service. Use at your own risk.
