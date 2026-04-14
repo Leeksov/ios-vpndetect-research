@@ -1,0 +1,29 @@
+.DS_Store
+
+# Binaries and IDA databases — not published (copyright + size).
+binaries/
+*.i64
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+MtsServiceRu
+MtsServiceRu.i64
+MtsServiceRu.id*
+MtsServiceRu.nam
+MtsServiceRu.til
+
+# Theos build artifacts.
+.theos/
+packages/
+*.deb
+obj/
+
+# fishhook submodule — users should fetch themselves.
+tweaks/VPNHide/fishhook/
+
+# Editor stuff.
+*.swp
+.vscode/
+.idea/

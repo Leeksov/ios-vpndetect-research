@@ -1,0 +1,9 @@
+Package: com.leeksov.vpnhide
+Name: VPNHide
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Low-level VPN-detection bypass via fishhook.
+Maintainer: Leeksov
+Author: Leeksov
+Section: Tweaks
+Depends: mobilesubstrate
