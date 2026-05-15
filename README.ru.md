@@ -35,7 +35,8 @@ Reverse-engineering клиентской детекции VPN / proxy в iOS-п�
 ## Ключевые выводы (cross-app)
 
 - **12 из 16** приложений проверяют `CFNetworkCopySystemProxySettings.__SCOPED__` → substring match по `utun/tun/tap/ipsec/ppp`. Это «классика» — fishhook закрывает за 5 минут.
-- **3 приложения** используют **server-side** детект (2GIS `/v1/vpn-detection-free` → 451, Amediateka `ShortApiError403Vpn`, Кинопоиск `/tmgrdfrend/checkvpn`). Клиентский bypass не помогает, нужен mitmproxy или residential-IP.
+- **3 приложения** используют **server-side** детект: 2GIS `/v1/vpn-detection-free` → 451, Amediateka `ShortApiError403Vpn` и Yandex Passport `/tmgrdfrend/checkvpn`. Первым двум нужен mitmproxy или residential-IP. Yandex'овский, однако, **обходится** клиентски — его SDK толерантен к ошибке этого эндпоинта (иначе нельзя, мобильная сеть его регулярно роняет), поэтому достаточно убить запрос через `NSURLSession`-свизл. См. секцию про твик ниже.
+- **Yandex Passport `/tmgrdfrend/checkvpn` — shared-SDK эндпоинт**, который дёргают как минимум 10 приложений Яндекса из этой выборки (Почта, Метро, Ключ, Кинопоиск, Яндекс Go / Такси, Карты/Пробки, Переводчик, Маркет Blue, Расписания, IoT). Один клиентский хук закрывает всё семейство сразу.
 - **2 приложения** используют **remote-configurable** список VPN-паттернов через `vpnProtocolsKeysIdentifiers` / `vpnProtocols` — теоретически бэкенд может выкатить новые паттерны без релиза.
 - **Shared SDK-переиспользование**: `MobileAdsCore.MACVpnStatusCheckerImpl` (SPB TV — Amediateka + Кинопоиск), Yandex AppLib `YAL*` (Маркет + Кинопоиск + Еда), `YXFintechFoundation.VPNConnectionCheckerImpl` (Еда + вероятно Маркет/Такси/Доставка).
 - **Мой налог** (ФНС) — **не детектит VPN вообще**. Уникально для госприложения.
@@ -49,8 +50,9 @@ Reverse-engineering клиентской детекции VPN / proxy в iOS-п�
 
 - **fishhook** перепривязывает main-app GOT для: `CFNetworkCopySystemProxySettings`, `CFNetworkCopyProxiesForURL`, `getifaddrs`, `sysctl`, `sysctlbyname`, `if_nameindex`.
 - **MSHookFunction** патчит реальные прологи shared-cache символов: `nw_path_uses_interface_type`, `nw_interface_get_type`, `nw_interface_get_name`, `nw_path_enumerate_interfaces`. Нужен jailbreak (Substrate или ElleKit).
+- **ObjC-свизл** на `-[NSURLSession dataTaskWithRequest:completionHandler:]` — убивает server-side пробу Yandex Passport `/tmgrdfrend/checkvpn`, отдавая `NSURLErrorNotConnectedToInternet` в completion handler. Покрывает ~10 приложений Яндекса с общим Passport SDK.
 
-Фильтр бандлов — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (15 bundle ID на текущий момент).
+Фильтр бандлов — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (сейчас включает все разобранные приложения плюс Yandex Passport-SDK семейство).
 
 ### Установка
 

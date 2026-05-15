@@ -37,7 +37,8 @@ All binaries are arm64 single-slice (no arm64e).
 ## Cross-app findings
 
 - **12 out of 16** apps rely on `CFNetworkCopySystemProxySettings.__SCOPED__` substring-matching against `utun / tun / tap / ipsec / ppp`. This is the "classic" pattern — fishhook neutralises it in a few lines.
-- **3 apps** do **server-side** detection (2GIS `/v1/vpn-detection-free` → HTTP 451, Amediateka `ShortApiError403Vpn`, Kinopoisk `/tmgrdfrend/checkvpn`). Client-side bypass doesn't help; you need mitmproxy for response rewriting or a residential exit IP.
+- **3 apps** do **server-side** detection: 2GIS `/v1/vpn-detection-free` → HTTP 451, Amediateka `ShortApiError403Vpn`, and Yandex Passport `/tmgrdfrend/checkvpn`. For the first two you still need mitmproxy or a residential exit IP. The Yandex one, however, **is** bypassed client-side — its SDK is tolerant to the endpoint failing (it has to be, since mobile networks drop it regularly), so killing the request via an `NSURLSession` swizzle is enough. See the tweak section below.
+- **Yandex Passport `/tmgrdfrend/checkvpn` is a shared-SDK endpoint** fired by at least 10 Yandex apps in this study (Mail, Metro, Kluch, Kinopoisk, Yandex Go / Taxi, Maps/Traffic, Translate, Market Blue, Rasp, IoT). One client-side hook covers the whole family.
 - **2 apps** use a **remote-configurable** VPN-pattern list via `vpnProtocolsKeysIdentifiers` / `vpnProtocols` — the backend can push new needles without releasing an update.
 - **Shared-SDK reuse across apps**: `MobileAdsCore.MACVpnStatusCheckerImpl` (SPB TV — Amediateka + Kinopoisk), Yandex AppLib `YAL*` (Yandex Market + Kinopoisk + Yandex Eats), `YXFintechFoundation.VPNConnectionCheckerImpl` (Yandex Eats and likely Market / Taxi / Delivery).
 - **Мой налог** (Russian Federal Tax Service app) — **does not detect VPN at all**. Unique for a government app.
@@ -51,8 +52,9 @@ For a side-by-side comparison of detectors and UI reactions, see the "Сравн
 
 - **fishhook** rebinds main-app GOT for: `CFNetworkCopySystemProxySettings`, `CFNetworkCopyProxiesForURL`, `getifaddrs`, `sysctl`, `sysctlbyname`, `if_nameindex`.
 - **MSHookFunction** patches actual prologues of shared-cache symbols: `nw_path_uses_interface_type`, `nw_interface_get_type`, `nw_interface_get_name`, `nw_path_enumerate_interfaces`. Requires a jailbreak (Substrate or ElleKit).
+- **ObjC swizzle** on `-[NSURLSession dataTaskWithRequest:completionHandler:]` — kills the Yandex Passport `/tmgrdfrend/checkvpn` server-side probe by short-circuiting it with `NSURLErrorNotConnectedToInternet`. Covers the ~10 Yandex apps that embed the shared Passport SDK.
 
-Bundle filter — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (15 bundle IDs at the moment).
+Bundle filter — [`tweaks/VPNHide/Filter.plist`](tweaks/VPNHide/Filter.plist) (currently covers all analysed apps plus the Yandex Passport-SDK family).
 
 ### Install
 
