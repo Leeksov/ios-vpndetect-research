@@ -13,6 +13,7 @@
 | `nw_path_uses_interface_type` | Для `nw_interface_type_other` (0) всегда возвращает `false`. Для остальных типов — проксирует оригинал. |
 | `nw_interface_get_type` | Если оригинал вернул `.other` и имя интерфейса (через `nw_interface_get_name` из `dlsym`) матчится по VPN-префиксу — возвращает `.wifi` вместо `.other`. Покрывает Swift-код, делающий `path.availableInterfaces.map(\.type)` вместо `path.usesInterfaceType(_:)`. |
 | `getifaddrs` | Отфильтровывает VPN-интерфейсы из linked-list, возвращаемого libc. |
+| `-[NSURLSession dataTaskWithRequest:completionHandler:]` | ObjC-свизл. Перехватывает запросы, URL которых содержит `mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn`, и закрывает их синтетическим `NSURLErrorNotConnectedToInternet` — проба не доходит до сети, вердикт не возвращается. См. [Yandex Passport checkvpn](#yandex-passport-checkvpn-server-side-проба). |
 
 Перепривязка — в `__attribute__((constructor))` + повторно на каждом `_dyld_register_func_for_add_image`. Это покрывает фреймворки, подгружаемые лениво через `dlopen` после старта процесса (и `libswiftNetwork.dylib` — Swift-overlay для `Network.framework`, вызывающий `nw_interface_get_type` из своих wrapper'ов).
 
@@ -24,10 +25,25 @@
 - Детект через `NWPathMonitor` + `NWPath.usesInterfaceType(.other)` (MyMTS).
 - Детект через `NWPath.availableInterfaces.map(\.type).contains(.other)` — Swift enum-сравнение (ЦППК `NetworkMonitor`).
 - Любой детект на базе `getifaddrs` / `if_nameindex`-обхода.
+- Yandex Passport **server-side** проверка через `mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn` — обходится убийством самого запроса (см. ниже).
+
+## Yandex Passport checkvpn (server-side проба)
+
+Ряд приложений Яндекса (Почта, Метро, Ключ, Кинопоиск, Яндекс Go / Такси, Карты/Пробки, Переводчик, Маркет Blue, Расписания, IoT) тащит общий Passport SDK, который на старте / обновлении токена дёргает:
+
+```
+GET https://mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn
+```
+
+Это **server-side**-детектор: вердикт («клиент пришёл с VPN/прокси-egress?») считается на стороне Яндекса по исходному IP запроса и возвращается в теле ответа. Приложение потом гейтит фичи / рисует баннер / пишет телеметрию на основе того, что прилетело. Классические хуки по именам интерфейсов и proxy-settings (всё остальное в этом твике) сюда не подходят — логика детекта живёт не на устройстве.
+
+Bypass — **убить пробу на клиенте**: свизлим `-[NSURLSession dataTaskWithRequest:completionHandler:]`, матчим URL подстрокой, в completion handler синтезируем `NSURLErrorNotConnectedToInternet`. Приложение воспринимает это как обычный сетевой сбой и продолжает работу без вердикта. Работает, потому что SDK к ошибке этого эндпоинта толерантен (иначе нельзя — на флаки-мобильной сети он регулярно валится сам).
+
+Преднастроенные бандлы в [`Filter.plist`](Filter.plist): `ru.yandex.mail`, `ru.yandex.mobile.metro`, `ru.yandex.mobile.kluch`, `ru.kinopoisk`, `ru.yandex.ytaxi`, `ru.yandex.traffic`, `ru.yandex.mobile.translate`, `ru.yandex.blue.market`, `ru.yandex.rasp`, `com.yandex.iot`.
 
 ## Когда **не** поможет
 
-- Server-side детект по IP-адресу.
+- Server-side детект по IP-адресу *кроме* Yandex'овского `checkvpn`-эндпоинта.
 - Чтение routing table через `sysctl(net.route.0)` — не хукается (при необходимости добавить отдельный хук).
 - DNS-cross-check через `DNSServiceQueryRecord` — не хукается.
 - Детекторы, читающие дескрипторы сокетов и проверяющие flags интерфейса напрямую через `ioctl(SIOCGIFFLAGS)`.
@@ -45,13 +61,7 @@ make package install
 
 ## Настройка под приложение
 
-[`Filter.plist`](Filter.plist) содержит список bundle ID, для которых твик активируется. По умолчанию там один:
-
-```
-{ Filter = { Bundles = ( "ru.mts.mymts" ); }; }
-```
-
-Добавьте нужные bundle ID — таблица приложений в репе: [`../../README.md`](../../README.ru.md).
+[`Filter.plist`](Filter.plist) содержит список bundle ID, для которых твик активируется. По умолчанию там все разобранные приложения с детектом. Добавьте или уберите нужные bundle ID — полная таблица приложений в репе: [`../../README.md`](../../README.ru.md).
 
 ## Проверка
 

@@ -15,6 +15,7 @@ Universal Theos tweak that hides an active VPN/proxy from iOS apps. Low-level by
 | `getifaddrs` | Filters VPN interfaces out of the linked list returned by libc. |
 | `sysctl` / `sysctlbyname` | Diagnostic logging only (no behaviour change). |
 | `if_nameindex` | Blanks the names of VPN interfaces in the returned list. |
+| `-[NSURLSession dataTaskWithRequest:completionHandler:]` | ObjC swizzle. Intercepts requests whose URL contains `mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn` and short-circuits them with a synthetic `NSURLErrorNotConnectedToInternet` — the probe never hits the wire, the verdict never comes back. See [Yandex Passport checkvpn](#yandex-passport-checkvpn-server-side-probe). |
 
 The first 4 (and `getifaddrs`) are installed in `__attribute__((constructor))`. fishhook covers main-app GOT; `MSHookFunction` patches actual prologues of `nw_*` symbols inside `libnetwork.dylib`/`libswiftNetwork.dylib` (which live in dyld_shared_cache, where fishhook can't reach).
 
@@ -26,10 +27,25 @@ The first 4 (and `getifaddrs`) are installed in `__attribute__((constructor))`. 
 - Detection via `NWPathMonitor` + `NWPath.usesInterfaceType(.other)` (MyMTS).
 - Detection via `NWPath.availableInterfaces.map(\.type).contains(.other)` — Swift enum comparison (CPPK `NetworkMonitor`).
 - Any detection based on `getifaddrs` / `if_nameindex` enumeration.
+- Yandex Passport **server-side** check via `mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn` — bypassed by killing the request itself (see below).
+
+## Yandex Passport checkvpn (server-side probe)
+
+A bunch of Yandex apps (Mail, Metro, Kluch, Kinopoisk, Yandex Go / Taxi, Maps/Traffic, Translate, Market Blue, Rasp, IoT) embed a shared Passport SDK that, on launch / token refresh, fires:
+
+```
+GET https://mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn
+```
+
+This is a **server-side** detector: the verdict ("is the client coming from a VPN/proxy egress?") is computed on Yandex's side from the request's source IP and returned in the response body. The app then gates features / shows a banner / writes telemetry based on what came back. Classic interface-name / proxy-settings hooks (the rest of this tweak) don't touch it, because the detection logic isn't on the device.
+
+The bypass here is to **kill the probe on the client**: swizzle `-[NSURLSession dataTaskWithRequest:completionHandler:]`, match the URL substring, and synthesise `NSURLErrorNotConnectedToInternet` into the completion handler. App treats it like a transient connectivity blip and proceeds without a verdict. Works because the SDK is defensive about this endpoint failing (it has to be — the call regularly fails on flaky mobile networks).
+
+Bundles preconfigured in [`Filter.plist`](Filter.plist): `ru.yandex.mail`, `ru.yandex.mobile.metro`, `ru.yandex.mobile.kluch`, `ru.kinopoisk`, `ru.yandex.ytaxi`, `ru.yandex.traffic`, `ru.yandex.mobile.translate`, `ru.yandex.blue.market`, `ru.yandex.rasp`, `com.yandex.iot`.
 
 ## When it does **not** help
 
-- Server-side detection by IP address.
+- Server-side detection by IP address *other than* Yandex's `checkvpn` endpoint.
 - Reading the routing table via `sysctl(net.route.0)` — not hooked (add a separate hook if needed).
 - DNS cross-check via `DNSServiceQueryRecord` — not hooked.
 - Detectors that read socket descriptors and check interface flags directly via `ioctl(SIOCGIFFLAGS)`.
