@@ -14,6 +14,7 @@
 #import <string.h>
 #import <stdio.h>
 #import <dlfcn.h>
+#import <objc/runtime.h>
 #import "fishhook/fishhook.h"
 
 #define VPNLog(fmt, ...) NSLog(@"[VPNHide] " fmt, ##__VA_ARGS__)
@@ -252,6 +253,60 @@ static struct if_nameindex *hook_if_nameindex(void) {
     return list;
 }
 
+#pragma mark - NSURLSession dataTaskWithRequest:completionHandler: (block Yandex checkvpn)
+
+// Yandex Passport pings this endpoint to detect VPN/proxy usage from the client
+// side (mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn). Returning a
+// network-error to the completion handler kills the probe without touching the
+// wire — app treats it like a transient connectivity blip and proceeds.
+static NSString *const kBlockedURLSubstring =
+    @"mobileproxy.passport.yandex.net/tmgrdfrend/checkvpn";
+
+typedef NSURLSessionDataTask *(*dataTaskWithRequest_completion_fn)(
+    id, SEL, NSURLRequest *, void (^)(NSData *, NSURLResponse *, NSError *));
+
+static dataTaskWithRequest_completion_fn orig_dataTaskWithRequest_completion = NULL;
+
+static NSURLSessionDataTask *hook_dataTaskWithRequest_completion(
+        id self, SEL _cmd, NSURLRequest *request,
+        void (^completionHandler)(NSData *, NSURLResponse *, NSError *)) {
+    NSString *urlStr = request.URL.absoluteString;
+    if (urlStr && [urlStr rangeOfString:kBlockedURLSubstring].location != NSNotFound) {
+        VPNLog(@"BLOCKED NSURLSession request: %@", urlStr);
+        if (completionHandler) {
+            NSError *err = [NSError errorWithDomain:NSURLErrorDomain
+                                               code:NSURLErrorNotConnectedToInternet
+                                           userInfo:@{NSLocalizedDescriptionKey:
+                                                          @"blocked by VPNHide"}];
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+                completionHandler(nil, nil, err);
+            });
+        }
+        // Caller still expects a non-nil task object to -resume. Hand back a
+        // harmless about:blank task with no completion (we've already fired
+        // our synthetic completion above).
+        NSURLRequest *dummy =
+            [NSURLRequest requestWithURL:[NSURL URLWithString:@"about:blank"]];
+        return orig_dataTaskWithRequest_completion(self, _cmd, dummy, nil);
+    }
+    return orig_dataTaskWithRequest_completion(self, _cmd, request, completionHandler);
+}
+
+static void install_nsurlsession_swizzle(void) {
+    Class cls = [NSURLSession class];
+    SEL sel = @selector(dataTaskWithRequest:completionHandler:);
+    Method m = class_getInstanceMethod(cls, sel);
+    if (!m) {
+        VPNLog(@"NSURLSession swizzle: method not found");
+        return;
+    }
+    orig_dataTaskWithRequest_completion =
+        (dataTaskWithRequest_completion_fn)method_getImplementation(m);
+    method_setImplementation(m, (IMP)hook_dataTaskWithRequest_completion);
+    VPNLog(@"NSURLSession dataTaskWithRequest:completionHandler: swizzled, orig=%p",
+           orig_dataTaskWithRequest_completion);
+}
+
 #pragma mark - Substrate resolver
 
 static void resolve_substrate(void) {
@@ -336,6 +391,9 @@ static void VPNHideInit(void) {
           (void *)hook_if_nameindex,
           (void **)&orig_if_nameindex },
     };
+    // 3) ObjC swizzle for NSURLSession — kills Yandex Passport checkvpn probe.
+    install_nsurlsession_swizzle();
+
     int rc = rebind_symbols(rs, sizeof(rs) / sizeof(rs[0]));
     VPNLog(@"fishhook rc=%d, captured: CFSysProxy=%p CFProxiesURL=%p getifaddrs=%p sysctl=%p sysctlbyname=%p if_nameindex=%p",
            rc,

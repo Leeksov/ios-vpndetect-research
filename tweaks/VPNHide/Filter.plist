@@ -1,1 +1,30 @@
-{ Filter = { Bundles = ( "ru.mts.mymts", "ru.megafon.lk", "com.cdek.cdekapp", "com.dns.DNSShop.DNS-SHOP", "ru.urentbike.app", "com.minsvyaz.gosuslugi", "ru.central-ppk.Timetable", "ru.beeline.mobile", "ru.doublegis.grymmobile", "ru.yum.KFC-Russia", "com.mcdonaldsru.mcd", "com.spbtv.ag.tv.Amedia", "ru.yandex.blue.market", "ru.kinopoisk", "com.appkode.foodfox" ); }; }
+{
+	Filter = {
+		Bundles = (
+			"ru.yandex.mail",
+			"ru.yandex.mobile.metro",
+			"ru.yandex.mobile.kluch",
+			"ru.yandex.ytaxi",
+			"ru.yandex.traffic",
+			"ru.yandex.mobile.translate",
+			"ru.yandex.rasp",
+			"com.yandex.iot",
+			"ru.tander.magnit",
+			"ru.mts.mymts",
+			"ru.megafon.lk",
+			"com.cdek.cdekapp",
+			"com.dns.DNSShop.DNS-SHOP",
+			"ru.urentbike.app",
+			"com.minsvyaz.gosuslugi",
+			"ru.central-ppk.Timetable",
+			"ru.beeline.mobile",
+			"ru.doublegis.grymmobile",
+			"ru.yum.KFC-Russia",
+			"com.mcdonaldsru.mcd",
+			"com.spbtv.ag.tv.Amedia",
+			"ru.yandex.blue.market",
+			"ru.kinopoisk",
+			"com.appkode.foodfox",
+		);
+	};
+}
